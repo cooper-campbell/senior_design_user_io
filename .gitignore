@@ -1,0 +1,13 @@
+# ignore all
+*
+
+# un-ignore files of interest
+!.gitignore
+!senior_design_user_io.ioc
+!STM32F051R8TX_FLASH.ld
+# source files need to be included
+!*.c
+!*.h
+!*.s
+# include files within subdirectories too
+!*/
