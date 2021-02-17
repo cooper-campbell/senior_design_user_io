@@ -48,9 +48,10 @@ void interpolate_waveform() {
 	uint16_t value_before = waveform[WAVEFORM_SIZE-1];
 	uint16_t value_after;
 	uint8_t inc = 1;
+	uint32_t sum = 0;
 
 	for(unsigned int i = 0; i < WAVEFORM_SIZE-2; i += inc) {
-		uint16_t value_after = waveform[i+1];
+		value_after = waveform[i+1];
 		inc = 1;
 		// Increment sample.
 		waveform_counter.sample_counter = (waveform_counter.sample_counter + 1)%10;
@@ -62,6 +63,7 @@ void interpolate_waveform() {
 				value_after = waveform[i+2];
 				waveform[i] = (value_before + value_after)/3;
 				waveform[i+1] = 2*(value_before + value_after)/3;
+				sum += waveform[i] + waveform[i+1];
 				// we need to skip the next sample since we just calculated it.
 				inc = 2;
 			}
@@ -71,6 +73,7 @@ void interpolate_waveform() {
 		else if(i%2 == 0) {
 			// simple linear interpolation here.
 			waveform[i] = (value_before + value_after) / 2;
+			sum += waveform[i];
 		}
 
 		value_before = waveform[i];
@@ -82,6 +85,43 @@ void interpolate_waveform() {
 	waveform[WAVEFORM_SIZE-2] = (value_before + value_after) / 3;
 	waveform[WAVEFORM_SIZE-1] = 2*(value_before + value_after) / 3;
 	// Note that with this method, there are 3 interpolated points between the first input by the user and the last.
+
+	// Now we start removing DC offset as best we can.
+	uint16_t average_whole = sum/1746;
+	uint16_t average_remainder;
+	// avoid divide by zero
+	if(sum%1746 == 0)
+		average_remainder = 0;
+	else
+		average_remainder = 1746 / (sum % 1746);
+	uint8_t multiplier = 1;
+	// Remove the whole number offset from the waveform.
+	for(uint16_t i = 0; i < WAVEFORM_SIZE; i++) {
+		// We don't want to underflow.
+		if(waveform[i] > average_whole * multiplier) {
+			waveform[i] = waveform[i] - average_whole * multiplier;
+			multiplier = 1;
+		} else {
+			multiplier++;
+		}
+	}
+	// just return early if there is no remainder (unlikely).
+	if(average_remainder == 0) return;
+	// Do our best to remove fractional part
+	// I may have to get more precise by finding the remainder of the remainder division even.
+	multiplier = 1;
+	for(uint16_t i = 0; i < WAVEFORM_SIZE; i++) {
+
+		if(i % average_remainder == 0) {
+			if(waveform[i] >= 1) {
+				waveform[i] = waveform[i] - multiplier;
+				multiplier = 1;
+			}
+			else {
+				multiplier++;
+			}
+		}
+	}
 }
 
 void ui_setup(I2C_HandleTypeDef hi2c1,
@@ -100,7 +140,7 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 
 void ui_loop() {
 	// Delay 10 seconds because the test does not need to be constantly running.
-	HAL_Delay(10 * 1000);
+	HAL_Delay(1 * 1000);
 	HAL_SPI_Transmit_DMA(&m4_spi, (uint8_t *)waveform, WAVEFORM_SIZE);
 }
 
