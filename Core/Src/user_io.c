@@ -142,5 +142,6 @@ void ui_loop() {
 	// Delay 10 seconds because the test does not need to be constantly running.
 	HAL_Delay(1 * 1000);
 	HAL_SPI_Transmit_DMA(&m4_spi, (uint8_t *)waveform, WAVEFORM_SIZE);
+	while(1);
 }
 
