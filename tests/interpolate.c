@@ -13,7 +13,7 @@
 #define WAVEFORM_SIZE 1746
 
 // Private vars
-uint16_t waveform[WAVEFORM_SIZE] = {0};
+int16_t waveform[WAVEFORM_SIZE] = {0};
 uint16_t input_test[800] = {0};
 
 // private declarations
@@ -32,13 +32,12 @@ void normalize_waveform() {
 	}
 	// Now we start removing DC offset as best we can.
 	// also I know this has potential for weird maths bc of the unsigned/signed discrepancy.
-	int16_t average_whole = sum/WAVEFORM_SIZE - 0x8000;
-	int16_t average_remainder = sum % WAVEFORM_SIZE - 0x8000;
+	int16_t average_whole = sum/WAVEFORM_SIZE;
+	int16_t average_remainder = sum % WAVEFORM_SIZE;
 	printf("Sum: %d, average_whole: %d, remainder: %d\n", sum, average_whole, average_remainder);
-	uint8_t multiplier = 1;
+	int8_t multiplier = 1;
 	// Remove the whole number offset from the waveform.
 	for(int i = 0; i < WAVEFORM_SIZE; i++) {
-		// We don't want to underflow.
 		waveform[i] = waveform[i] - average_whole;
 	}
 	/*
@@ -65,17 +64,18 @@ void stream_touch_sample(uint16_t x, uint16_t y) {
 	// This is the math necessary to expand 800 samples into 1746.
 	// Need to manually add 2 points at the end to make it match the beginning.
 	int location = find_location(x);
-
+	int tmp = y - 240;
+	// -240, 239 -> -32768, 32767
 	// The y math scales the 480 pixels to be [0, 2^16-1] as per the specified interface.
-	waveform[location] = 136 * y + 17 * y/32;
+	waveform[location] = 136 * tmp + tmp/2;
 }
 
 void interpolate_waveform() {
 	reset_counters();
 	// So we double every sample, by adding 1 sample before it
 	// Next, every 10 samples we add a new one, skipping every 100 samples
-	uint16_t value_before = waveform[WAVEFORM_SIZE-1];
-	uint16_t value_after;
+	int16_t value_before = waveform[WAVEFORM_SIZE-1];
+	int16_t value_after;
 	uint8_t inc = 1;
 
 	// It is easier to loop over every point given and interpolate between
@@ -105,11 +105,11 @@ void interpolate_waveform() {
 	waveform[0] = waveform[WAVEFORM_SIZE-1];
 }
 
-void print_waveform(FILE *fp, uint16_t *x, int size) {
+void print_waveform(FILE *fp, int16_t *x, int size) {
 	for(int i = 0; i < size-1; i++) {
-		fprintf(fp, "%u,", x[i]);
+		fprintf(fp, "%d,", x[i]);
 	}
-	fprintf(fp, "%u\n", x[size-1]);
+	fprintf(fp, "%d\n", x[size-1]);
 }
 
 void run_test(FILE * fp) {
