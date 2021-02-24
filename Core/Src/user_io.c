@@ -87,13 +87,14 @@ void interpolate_waveform() {
 	// Note that with this method, there are 3 interpolated points between the first input by the user and the last.
 
 	// Now we start removing DC offset as best we can.
-	uint16_t average_whole = sum/1746;
+	// also I know this has potential for weird maths bc of the unsigned/signed discrepancy.
+	int16_t average_whole = sum/1746 - (2^15);
 	uint16_t average_remainder;
 	// avoid divide by zero
-	if(sum%1746 == 0)
+	if((sum&0x8000) == 0)
 		average_remainder = 0;
 	else
-		average_remainder = 1746 / (sum % 1746);
+		average_remainder = 1746 / (sum & 0x8000);
 	uint8_t multiplier = 1;
 	// Remove the whole number offset from the waveform.
 	for(uint16_t i = 0; i < WAVEFORM_SIZE; i++) {
