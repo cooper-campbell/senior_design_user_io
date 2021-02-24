@@ -15,7 +15,6 @@
 // Private vars
 uint16_t waveform[WAVEFORM_SIZE] = {0};
 uint16_t input_test[800] = {0};
-int sum = 0;
 
 // private declarations
 void reset_counters() {
@@ -27,27 +26,22 @@ int find_location(int x) {
 }
 
 void normalize_waveform() {
+	int sum = 0;
+	for(int i = 0; i < WAVEFORM_SIZE; i++) {
+		sum += waveform[i];
+	}
 	// Now we start removing DC offset as best we can.
 	// also I know this has potential for weird maths bc of the unsigned/signed discrepancy.
-	printf("sum: %d\n", sum);
-	int16_t average_whole = sum/1746 - (2^15);
-	uint16_t average_remainder;
-	// avoid divide by zero
-	if((sum&0x8000) == 0)
-		average_remainder = 0;
-	else
-		average_remainder = 1746 / (sum & 0x8000);
+	int16_t average_whole = sum/WAVEFORM_SIZE - 0x8000;
+	int16_t average_remainder = sum % WAVEFORM_SIZE - 0x8000;
+	printf("Sum: %d, average_whole: %d, remainder: %d\n", sum, average_whole, average_remainder);
 	uint8_t multiplier = 1;
 	// Remove the whole number offset from the waveform.
-	for(uint16_t i = 0; i < WAVEFORM_SIZE; i++) {
+	for(int i = 0; i < WAVEFORM_SIZE; i++) {
 		// We don't want to underflow.
-		if(waveform[i] > average_whole * multiplier) {
-			waveform[i] = waveform[i] - average_whole * multiplier;
-			multiplier = 1;
-		} else {
-			multiplier++;
-		}
+		waveform[i] = waveform[i] - average_whole;
 	}
+	/*
 	// just return early if there is no remainder (unlikely).
 	if(average_remainder == 0) return;
 	// Do our best to remove fractional part
@@ -56,7 +50,7 @@ void normalize_waveform() {
 	for(uint16_t i = 0; i < WAVEFORM_SIZE; i++) {
 		if(i % average_remainder == 0) {
 			if(waveform[i] >= 1) {
-				waveform[i] = waveform[i] - multiplier;
+				waveform[i] = waveform[i] - multiplier * ((average_whole < 0) ? -1 : 1);
 				multiplier = 1;
 			}
 			else {
@@ -64,6 +58,7 @@ void normalize_waveform() {
 			}
 		}
 	}
+	*/
 }
 
 void stream_touch_sample(uint16_t x, uint16_t y) {
@@ -82,7 +77,6 @@ void interpolate_waveform() {
 	uint16_t value_before = waveform[WAVEFORM_SIZE-1];
 	uint16_t value_after;
 	uint8_t inc = 1;
-	sum = 0;
 
 	// It is easier to loop over every point given and interpolate between
 	int alocation = find_location(0);
@@ -94,7 +88,6 @@ void interpolate_waveform() {
 	for(int i = 0; i < 800; i++) {
 		for(int j = 1; j < num; j++) {
 			waveform[index] = (j * (value_after - value_before))/num + value_before;
-			sum += waveform[index];
 			index++;
 		}
 		index++;
