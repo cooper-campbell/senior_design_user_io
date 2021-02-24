@@ -11,118 +11,61 @@
 #include <stdint.h>
 
 // Private vars
-uint16_t waveform[WAVEFORM_SIZE] = {0};
+int16_t waveform[WAVEFORM_SIZE] = {0};
 // anonymous structure to count waveform properly
 // almost out of ram already so time for bitfields
-struct {
-	uint32_t sample_counter : 4;
-	uint32_t removal_counter : 4;
-	uint32_t total_counter : 12;
-} waveform_counter;
 I2C_HandleTypeDef storage_i2c;
 SPI_HandleTypeDef m4_spi;
 SPI_HandleTypeDef screen_spi;
 DMA_HandleTypeDef m4_dma;
 
-// private declarations
-void reset_counters() {
-	waveform_counter.sample_counter = 0;
-	waveform_counter.removal_counter = 0;
-	waveform_counter.total_counter = 0;
-}
-void stream_touch_sample(uint16_t x, uint16_t y) {
-	int location;
-	// This is the math necessary to expand 800 samples into 1746.
-	// Need to manually add 2 points at the end to make it match the beginning.
+// Maps 0,799 to the location in waveform of the sample.
+int find_location(int x) {
 	int tmp = 2 * (x+1);
-	location = tmp + tmp/10 - tmp/100 - 1;
+	return tmp + tmp/10 - tmp/100 -1;
+}
 
-	// The y math scales the 480 pixels to be [0, 2^16-1] as per the specified interface.
-	waveform[location] = 136 * y + 17 * y/32;
+int scale(uint16_t y) {
+	int tmp = y - 240;
+	return 136 * y + tmp/2;
+}
+
+void stream_touch_sample(uint16_t x, uint16_t y) {
+	int location = find_location(x);
+	waveform[location] = scale(y);
 }
 
 void interpolate_waveform() {
-	reset_counters();
 	// So we double every sample, by adding 1 sample before it
 	// Next, every 10 samples we add a new one, skipping every 100 samples
-	uint16_t value_before = waveform[WAVEFORM_SIZE-1];
-	uint16_t value_after;
-	uint8_t inc = 1;
-	uint32_t sum = 0;
+	int16_t value_before = waveform[WAVEFORM_SIZE-1];
+	int16_t value_after;
 
-	for(unsigned int i = 0; i < WAVEFORM_SIZE-2; i += inc) {
-		value_after = waveform[i+1];
-		inc = 1;
-		// Increment sample.
-		waveform_counter.sample_counter = (waveform_counter.sample_counter + 1)%10;
-
-		// We may need to add two samples between these points.
-		if(waveform_counter.sample_counter == 9) {
-			// only if the removal counter is 0 do we skip this.
-			if(waveform_counter.removal_counter != 0) {
-				value_after = waveform[i+2];
-				waveform[i] = (value_before + value_after)/3;
-				waveform[i+1] = 2*(value_before + value_after)/3;
-				sum += waveform[i] + waveform[i+1];
-				// we need to skip the next sample since we just calculated it.
-				inc = 2;
-			}
-			waveform_counter.removal_counter = (waveform_counter.removal_counter + 1) % 10;
+	// It is easier to loop over every point given and interpolate between
+	int alocation = find_location(0);
+	int blocation = find_location(799);
+	int num = 2;
+	value_before = waveform[blocation];
+	value_after = waveform[alocation];
+	int index = 0;
+	for(int i = 0; i < 800; i++) {
+		for(int j = 1; j < num; j++) {
+			waveform[index] = (j * (value_after - value_before))/num + value_before;
+			index++;
 		}
-		// add a sample before every other sample received from screen.
-		else if(i%2 == 0) {
-			// simple linear interpolation here.
-			waveform[i] = (value_before + value_after) / 2;
-			sum += waveform[i];
-		}
-
-		value_before = waveform[i];
-		waveform_counter.total_counter++;
+		index++;
+		blocation = alocation;
+		alocation = find_location((i+1)%800);
+		num = alocation - blocation;
+		value_before = waveform[blocation];
+		value_after = waveform[alocation];
 	}
-	value_after = waveform[0];
-	value_before = waveform[WAVEFORM_SIZE-3];
+	value_after = waveform[find_location(0)];
+	value_before = waveform[find_location(799)];
 	// add final two points to smooth towards the beginning.
-	waveform[WAVEFORM_SIZE-2] = (value_before + value_after) / 3;
-	waveform[WAVEFORM_SIZE-1] = 2*(value_before + value_after) / 3;
-	// Note that with this method, there are 3 interpolated points between the first input by the user and the last.
-
-	// Now we start removing DC offset as best we can.
-	// also I know this has potential for weird maths bc of the unsigned/signed discrepancy.
-	int16_t average_whole = sum/1746 - (2^15);
-	uint16_t average_remainder;
-	// avoid divide by zero
-	if((sum&0x8000) == 0)
-		average_remainder = 0;
-	else
-		average_remainder = 1746 / (sum & 0x8000);
-	uint8_t multiplier = 1;
-	// Remove the whole number offset from the waveform.
-	for(uint16_t i = 0; i < WAVEFORM_SIZE; i++) {
-		// We don't want to underflow.
-		if(waveform[i] > average_whole * multiplier) {
-			waveform[i] = waveform[i] - average_whole * multiplier;
-			multiplier = 1;
-		} else {
-			multiplier++;
-		}
-	}
-	// just return early if there is no remainder (unlikely).
-	if(average_remainder == 0) return;
-	// Do our best to remove fractional part
-	// I may have to get more precise by finding the remainder of the remainder division even.
-	multiplier = 1;
-	for(uint16_t i = 0; i < WAVEFORM_SIZE; i++) {
-
-		if(i % average_remainder == 0) {
-			if(waveform[i] >= 1) {
-				waveform[i] = waveform[i] - multiplier;
-				multiplier = 1;
-			}
-			else {
-				multiplier++;
-			}
-		}
-	}
+	waveform[WAVEFORM_SIZE-2] = (value_after - value_before) / 3 + value_before;
+	waveform[WAVEFORM_SIZE-1] = (2*(value_after - value_before)) / 3 + value_before;
+	waveform[0] = waveform[WAVEFORM_SIZE-1];
 }
 
 void ui_setup(I2C_HandleTypeDef hi2c1,
