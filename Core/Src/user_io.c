@@ -68,6 +68,41 @@ void interpolate_waveform() {
 	waveform[0] = waveform[WAVEFORM_SIZE-1];
 }
 
+void normalize_waveform() {
+	int sum = 0;
+	for(int i = 0; i < WAVEFORM_SIZE; i++) {
+		sum += waveform[i];
+	}
+	// Now we start removing DC offset as best we can.
+	// also I know this has potential for weird maths bc of the unsigned/signed discrepancy.
+	int16_t average_whole = sum/WAVEFORM_SIZE;
+	int16_t average_remainder = sum % WAVEFORM_SIZE;
+	printf("Sum: %d, average_whole: %d, remainder: %d\n", sum, average_whole, average_remainder);
+	int8_t multiplier = 1;
+	// Remove the whole number offset from the waveform.
+	for(int i = 0; i < WAVEFORM_SIZE; i++) {
+		waveform[i] = waveform[i] - average_whole;
+	}
+	/*
+	// just return early if there is no remainder (unlikely).
+	if(average_remainder == 0) return;
+	// Do our best to remove fractional part
+	// I may have to get more precise by finding the remainder of the remainder division even.
+	multiplier = 1;
+	for(uint16_t i = 0; i < WAVEFORM_SIZE; i++) {
+		if(i % average_remainder == 0) {
+			if(waveform[i] >= 1) {
+				waveform[i] = waveform[i] - multiplier * ((average_whole < 0) ? -1 : 1);
+				multiplier = 1;
+			}
+			else {
+				multiplier++;
+			}
+		}
+	}
+	*/
+}
+
 void ui_setup(I2C_HandleTypeDef hi2c1,
 		SPI_HandleTypeDef spi1,
 		SPI_HandleTypeDef spi2,
