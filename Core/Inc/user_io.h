@@ -10,9 +10,15 @@
 
 // Includes
 #include "stm32f0xx_hal.h"
+#include "ra8875.h"
 
 // Defines
 #define WAVEFORM_SIZE 1746
+
+#define LcdSyncReset_Pin GPIO_PIN_8
+#define LcdSyncReset_GPIO_Port GPIOC
+#define ScreenSelect_Pin GPIO_PIN_12
+#define ScreenSelect_GPIO_Port GPIOB
 // Prototypes
 
 // called once in main to initialize the setup process.

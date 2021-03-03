@@ -19,6 +19,27 @@ SPI_HandleTypeDef m4_spi;
 SPI_HandleTypeDef screen_spi;
 DMA_HandleTypeDef m4_dma;
 
+// functions for the ra8875 to use
+void resetChip() {
+	// the time for this is exaggerated to make sure that it works
+	HAL_GPIO_WritePin(LcdSyncReset_GPIO_Port, LcdSyncReset_Pin, GPIO_PIN_RESET);
+	HAL_Delay(1000);
+	HAL_GPIO_WritePin(LcdSyncReset_GPIO_Port, LcdSyncReset_Pin, GPIO_PIN_SET);
+	HAL_Delay(3000);
+}
+
+void spiSend(uint8_t d) {
+	//HAL_GPIO_WritePin(ScreenSelect_GPIO_Port, ScreenSelect_Pin, GPIO_PIN_RESET);
+	HAL_SPI_Transmit(&screen_spi, &d, 1, HAL_MAX_DELAY);
+	//HAL_GPIO_WritePin(ScreenSelect_GPIO_Port, ScreenSelect_Pin, GPIO_PIN_SET);
+}
+uint8_t spiReceive() {
+	uint8_t d = 0;
+	//HAL_GPIO_WritePin(ScreenSelect_GPIO_Port, ScreenSelect_Pin, GPIO_PIN_RESET);
+	HAL_SPI_Receive(&screen_spi, &d, 1, HAL_MAX_DELAY);
+	//HAL_GPIO_WritePin(ScreenSelect_GPIO_Port, ScreenSelect_Pin, GPIO_PIN_SET);
+	return d;
+}
 // Maps 0,799 to the location in waveform of the sample.
 int find_location(int x) {
 	int tmp = 2 * (x+1);
@@ -76,9 +97,7 @@ void normalize_waveform() {
 	// Now we start removing DC offset as best we can.
 	// also I know this has potential for weird maths bc of the unsigned/signed discrepancy.
 	int16_t average_whole = sum/WAVEFORM_SIZE;
-	int16_t average_remainder = sum % WAVEFORM_SIZE;
-	printf("Sum: %d, average_whole: %d, remainder: %d\n", sum, average_whole, average_remainder);
-	int8_t multiplier = 1;
+	//int16_t average_remainder = sum % WAVEFORM_SIZE;
 	// Remove the whole number offset from the waveform.
 	for(int i = 0; i < WAVEFORM_SIZE; i++) {
 		waveform[i] = waveform[i] - average_whole;
@@ -115,12 +134,25 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 	// Dummy data to start
 	for(int i = 0; i < WAVEFORM_SIZE; i++)
 		waveform[i] = i;
+
+	setSpi(spiSend, spiReceive);
+	setReset(resetChip);
+
+	// this is probably unnecessary but it makes me feel better
+	// additionally it gives me a debug point rn
+	HAL_Delay(2000);
+
+	resetChip();
+	LCD_Initial();
+	displayOn();
+	fillScreen(0x0000ff); // blue
 }
 
 void ui_loop() {
 	// Delay 10 seconds because the test does not need to be constantly running.
 	HAL_Delay(1 * 1000);
 	HAL_SPI_Transmit_DMA(&m4_spi, (uint8_t *)waveform, WAVEFORM_SIZE);
-	while(1);
+	while(1) {
+	}
 }
 
