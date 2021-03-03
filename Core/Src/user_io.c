@@ -28,6 +28,11 @@ void resetChip() {
 	HAL_Delay(3000);
 }
 
+void selectChip(uint8_t on) {
+	if(on) HAL_GPIO_WritePin(ScreenSelect_GPIO_Port, ScreenSelect_Pin, GPIO_PIN_RESET);
+	else HAL_GPIO_WritePin(ScreenSelect_GPIO_Port, ScreenSelect_Pin, GPIO_PIN_SET);
+}
+
 void spiSend(uint8_t d) {
 	//HAL_GPIO_WritePin(ScreenSelect_GPIO_Port, ScreenSelect_Pin, GPIO_PIN_RESET);
 	HAL_SPI_Transmit(&screen_spi, &d, 1, HAL_MAX_DELAY);
@@ -46,9 +51,13 @@ int find_location(int x) {
 	return tmp + tmp/10 - tmp/100 -1;
 }
 
-int scale(uint16_t y) {
+int16_t scale(uint16_t y) {
 	int tmp = y - 240;
-	return 136 * y + tmp/2;
+	return 136 * tmp + tmp/2;
+}
+
+uint16_t undoScale(int16_t y) {
+	return (y/136) + 240;
 }
 
 void stream_touch_sample(uint16_t x, uint16_t y) {
@@ -133,9 +142,13 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 	m4_dma = dma1;
 	// Dummy data to start
 	for(int i = 0; i < WAVEFORM_SIZE; i++)
-		waveform[i] = i;
-
-	setSpi(spiSend, spiReceive);
+		if (i < WAVEFORM_SIZE/2) {
+			waveform[i] = -32623/2;
+		} else {
+			waveform[i] = 32623/2;
+		}
+	int tmpa = undoScale(32623);
+	setSpi(spiSend, spiReceive, selectChip);
 	setReset(resetChip);
 
 	// this is probably unnecessary but it makes me feel better
@@ -145,14 +158,29 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 	resetChip();
 	LCD_Initial();
 	displayOn();
-	fillScreen(0x0000ff); // blue
+	fillScreen(0x001f); // blue
 }
 
 void ui_loop() {
 	// Delay 10 seconds because the test does not need to be constantly running.
-	HAL_Delay(1 * 1000);
+	//HAL_Delay(1 * 1000);
 	HAL_SPI_Transmit_DMA(&m4_spi, (uint8_t *)waveform, WAVEFORM_SIZE);
-	while(1) {
+	fillScreen(0xf800);
+	drawRect(200,120,599,360, 0x07e0);
+	HAL_Delay(1000);
+	fillScreen(0x07e0);
+	drawRect(200,120,599,360, 0x001f);
+	HAL_Delay(1000);
+	fillScreen(0x001f);
+	drawRect(200,120,599,360, 0xf800);
+	HAL_Delay(1000);
+	drawLine(0, 0, 799, 479, 0x0000);
+	drawLine(799, 0, 0, 479, 0x0000);
+	HAL_Delay(1000);
+	for(int i = 0; i < 800; i++) {
+		uint16_t y = undoScale(waveform[find_location(i)]);
+		drawPixel(i,y,0xffff);
 	}
+	HAL_Delay(5000);
 }
 

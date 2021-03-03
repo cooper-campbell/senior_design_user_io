@@ -15,25 +15,35 @@ void (*spiWrite)(uint8_t) = 0;
  * spiRead needs to read an 8 bit integer from the desired location
  */
 uint8_t (*spiRead)() = 0;
+void (*chipSelect)(uint8_t) = 0;
 
 void cmdWrite(uint8_t data) {
+	chipSelect(1);
 	spiWrite(0x80);
 	spiWrite(data);
+	chipSelect(0);
 }
 
 void dataWrite(uint8_t data) {
+	chipSelect(1);
 	spiWrite(0x00);
 	spiWrite(data);
+	chipSelect(0);
 }
 
 uint8_t cmdRead() {
+	chipSelect(1);
 	spiWrite(0xc0);
+	chipSelect(0);
 	return spiRead();
 }
 
 uint8_t dataRead() {
+	chipSelect(1);
 	spiWrite(0x40);
-	return spiRead();
+	uint8_t d = spiRead();
+	chipSelect(0);
+	return d;
 }
 
 /*
@@ -45,9 +55,10 @@ void (*resetRa8875)(void) = 0;
 const static uint16_t _width = 800;
 const static uint16_t _height = 480;
 
-void setSpi(void (*write)(uint8_t), uint8_t (*read)()) {
+void setSpi(void (*write)(uint8_t), uint8_t (*read)(), void (*select)(uint8_t)) {
 	spiWrite = write;
 	spiRead = read;
+	chipSelect = select;
 }
 
 void setReset(void (*resetFunc)(void)) {
@@ -146,34 +157,80 @@ void displayOn() {
 	cmdWrite(0xc7); // gpiox is tied to lcd enable
 	dataWrite(0x01);
 }
-
-void fillScreen(uint16_t color) {
+void drawRect(uint16_t x, uint16_t y, uint16_t x2, uint16_t y2, uint16_t color) {
 	// There is a built in function for making certain shapes
-	// in the ra8875, this one is for a square(rectangle)
+		// in the ra8875, this one is for a square(rectangle)
 
-	// Configures the x parameters
-	cmdWrite(0x91);
-	dataWrite(0x00);
-	cmdWrite(0x92);
-	dataWrite(0x00);
+		// Configures the x parameters
+		cmdWrite(0x91);
+		dataWrite(x & 0xff);
+		cmdWrite(0x92);
+		dataWrite((x>>8) & 0xff);
 
-	// Configures the y parameters
-	cmdWrite(0x93);
-	dataWrite(0x00);
-	cmdWrite(0x94);
-	dataWrite(0x00);
+		// Configures the y parameters
+		cmdWrite(0x93);
+		dataWrite(y & 0xff);
+		cmdWrite(0x94);
+		dataWrite((y >> 8) & 0xff);
 
-	// set width
-	cmdWrite(0x95);
-	dataWrite(_width);
-	cmdWrite(0x96);
-	dataWrite(_width >> 8);
+		// set width
+		cmdWrite(0x95);
+		dataWrite(x2 & 0xff);
+		cmdWrite(0x96);
+		dataWrite((x2 >> 8) & 0xff);
 
-	// set height
-	cmdWrite(0x97);
-	dataWrite(_height);
-	cmdWrite(0x97);
-	dataWrite(_height >> 8);
+		// set height
+		cmdWrite(0x97);
+		dataWrite((y2 & 0xff));
+		cmdWrite(0x98);
+		dataWrite((y2 >> 8) & 0xff);
+
+		// configure color
+		cmdWrite(0x63);
+		dataWrite((color & 0xf800) >> 11); // red
+		cmdWrite(0x64);
+		dataWrite((color & 0x07e0) >> 5); // green
+		cmdWrite(0x65);
+		dataWrite((color & 0x001f)); // blue
+
+
+		// Start the drawing function on the ra8875
+		cmdWrite(0x90);
+		dataWrite(0xb0);
+
+		cmdWrite(0x90);
+		uint8_t tmp = dataRead();
+		while(!(tmp & 0x80)) {
+			cmdWrite(0x90);
+			tmp = dataRead();
+		}
+		HAL_Delay(20);
+}
+void fillScreen(uint16_t color) {
+	drawRect(0,0,_width-1, _height-1, color);
+}
+
+void drawLine(uint16_t x, uint16_t y, uint16_t x1, uint16_t y1, uint16_t color) {
+    cmdWrite(0x91);
+    dataWrite(x);
+    cmdWrite(0x92);
+    dataWrite(x >> 8);
+
+    cmdWrite(0x93);
+    dataWrite(y);
+    cmdWrite(0x94);
+    dataWrite(y >> 8);
+
+    cmdWrite(0x95);
+    dataWrite(x1);
+    cmdWrite(0x96);
+    dataWrite((x1) >> 8);
+
+    cmdWrite(0x97);
+    dataWrite(y1);
+    cmdWrite(0x98);
+    dataWrite((y1) >> 8);
+
 
 	// configure color
 	cmdWrite(0x63);
@@ -183,11 +240,35 @@ void fillScreen(uint16_t color) {
 	cmdWrite(0x65);
 	dataWrite((color & 0x001f)); // blue
 
-
-	// Start the drawing function on the ra8875
 	cmdWrite(0x90);
-	dataWrite(0xb0);
+	dataWrite(0x80);
 
-	// TODO: need to poll the status register, for now im just gonna manually put in a bunch of delay
-	HAL_Delay(1000); // 1 s delay
+	cmdWrite(0x90);
+			uint8_t tmp = dataRead();
+			while(!(tmp & 0x80)) {
+				cmdWrite(0x90);
+				tmp = dataRead();
+			}
+			HAL_Delay(20);
+}
+void drawPixel(uint16_t x, uint16_t y, uint16_t color) {
+	cmdWrite(0x46);
+	dataWrite(x & 0xff);
+
+	cmdWrite(0x47);
+	dataWrite((x>>8) & 0xff);
+
+	cmdWrite(0x48);
+	dataWrite(y & 0xff);
+
+	cmdWrite(0x49);
+	dataWrite((y>>8) & 0xff);
+
+	cmdWrite(0x02);
+
+	chipSelect(1);
+	spiWrite(0x00);
+	spiWrite((color >> 8) & 0xff);
+	spiWrite(color & 0xff);
+	chipSelect(0);
 }

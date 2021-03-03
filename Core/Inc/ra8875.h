@@ -22,7 +22,7 @@
  * The spi write command needs to send an 8 bit integer to the ra8875 screen
  * The spi read command needs to read an 8 bit integer to the ra8875 screen
  */
-void setSpi(void (*write)(uint8_t), uint8_t (*read)());
+void setSpi(void (*write)(uint8_t), uint8_t (*read)(), void (*chipSelect)(uint8_t));
 
 /*
  *	The reset command needs to assert the nRst pin for 1 ms, then deassert it and delay 10 ms.
@@ -39,5 +39,8 @@ void displayOn();
 
 // makes a screen one color
 void fillScreen(uint16_t c);
+void drawRect(uint16_t x, uint16_t y, uint16_t x2, uint16_t y2, uint16_t color);
+void drawLine(uint16_t x, uint16_t y, uint16_t x1, uint16_t y1, uint16_t color);
+void drawPixel(uint16_t x, uint16_t y, uint16_t color);
 
 #endif /* INC_RA8875_H_ */

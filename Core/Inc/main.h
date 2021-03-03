@@ -58,6 +58,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define ScreenSelect_Pin GPIO_PIN_12
+#define ScreenSelect_GPIO_Port GPIOB
 #define LcdSyncReset_Pin GPIO_PIN_8
 #define LcdSyncReset_GPIO_Port GPIOC
 /* USER CODE BEGIN Private defines */
