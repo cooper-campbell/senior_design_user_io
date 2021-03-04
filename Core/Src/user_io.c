@@ -133,7 +133,7 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 	m4_dma = dma1;
 	// Dummy data to start
 	for(int i = 0; i < WAVEFORM_SIZE; i++)
-		waveform[i] = i;
+		waveform[i] = sin_wave[i];
 
 	setSpi(spiSend, spiReceive);
 	setReset(resetChip);

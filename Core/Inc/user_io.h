@@ -10,6 +10,7 @@
 
 // Includes
 #include "stm32f0xx_hal.h"
+#include "default_wave.h"
 #include "ra8875.h"
 
 // Defines

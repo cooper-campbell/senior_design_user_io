@@ -66,7 +66,7 @@ void RA8875_PLL_init(void) {
 
 void LCD_Initial(void) {
 	cmdWrite(0x00);
-	uint8_t x = dataRead();
+	dataRead();
 	RA8875_PLL_init();
 	// configure 8 bit transfers, 256 color.
 	cmdWrite(0x10);
