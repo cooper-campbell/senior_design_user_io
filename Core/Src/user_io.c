@@ -144,7 +144,6 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 	for(int i = 0; i < WAVEFORM_SIZE; i++)
 		waveform[i] = sin_wave[i];
 
-	setSpi(spiSend, spiReceive);
 	setSpi(spiSend, spiReceive, selectChip);
 	setReset(resetChip);
 
