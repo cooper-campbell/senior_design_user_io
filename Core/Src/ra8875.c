@@ -142,11 +142,27 @@ void LCD_Initial(void) {
 	dataWrite(0x01);
 }
 
+void graphicsMode() {
+	cmdWrite(0x40);
+	uint8_t tmp = dataRead();
+
+	cmdWrite(0x40);
+	dataWrite((tmp & ~(0x80)));
+}
+
+void textMode() {
+	cmdWrite(0x40);
+	uint8_t tmp = dataRead();
+
+	cmdWrite(0x40);
+	dataWrite((tmp | 0x80));
+
+
+}
+
 void displayOn() {
 	// first lets set it to graphics mode
-	cmdWrite(0x40); // mwcr0
-	// there could be settings that we want to conserve here, but I am doubtful for our application.
-	dataWrite(0b00000000);
+	graphicsMode();
 
 	// turn on backlight
 	// writeReg(RA8875_P1CR, RA8875_P1CR_ENABLE | (clock & 0xF));
@@ -168,7 +184,7 @@ void enableTouch() {
 	// touch panel reg
 	cmdWrite(0x70);
 	// enable touch, clock speed, wake enable, and clck divider
-	dataWrite(0x80 | 0x30 | 0x08 | 0x04 );
+	dataWrite(0x80 | 0x70 | 0x08 | 0x04 );
 
 	// set it to auto mode
 	cmdWrite(0x71);
@@ -183,6 +199,38 @@ void enableTouch() {
 	cmdWrite(0xf0);
 	dataWrite(r | 0x04);
 }
+
+uint8_t isTouchEvent() {
+	cmdWrite(0xf1);
+
+	uint8_t d = dataRead();
+	return (d & 0x04);
+}
+
+void readTouch(uint16_t *x, uint16_t *y) {
+
+	uint16_t tmp;
+
+	cmdWrite(0x72);
+	*x = dataRead();
+
+	cmdWrite(0x73);
+	*y = dataRead();
+
+	cmdWrite(0x74);
+	tmp = dataRead();
+
+	*x <<= 2;
+	*y <<= 2;
+
+	*x |= tmp & 0x3;
+	*y |= (tmp>>2) & 0x3;
+
+	// clear interrupt
+	cmdWrite(0xf1);
+	dataWrite(0x04);
+}
+
 void drawRect(uint16_t x, uint16_t y, uint16_t x2, uint16_t y2, uint16_t color) {
 	// There is a built in function for making certain shapes
 		// in the ra8875, this one is for a square(rectangle)
@@ -224,13 +272,11 @@ void drawRect(uint16_t x, uint16_t y, uint16_t x2, uint16_t y2, uint16_t color) 
 		cmdWrite(0x90);
 		dataWrite(0xb0);
 
-		cmdWrite(0x90);
-		uint8_t tmp = dataRead();
-		while(!(tmp & 0x80)) {
+		uint8_t wait = 0;
+		do {
 			cmdWrite(0x90);
-			tmp = dataRead();
-		}
-		HAL_Delay(20);
+			wait = dataRead();
+		} while((wait & 0x80));
 }
 void fillScreen(uint16_t color) {
 	drawRect(0,0,_width-1, _height-1, color);

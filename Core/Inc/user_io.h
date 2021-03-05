@@ -28,7 +28,7 @@
 // is actually in the eeprom
 #define WAVEFORM_ID_ADDR 0x0000
 // where the waveform data starts
-#define WAFORM_DATA_START 0x0001
+#define WAVEFORM_DATA_START 0x0001
 
 // Prototypes
 

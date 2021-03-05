@@ -37,6 +37,8 @@ void LCD_Initial(void);
 // This will configure the display on for our purposes
 void displayOn();
 void enableTouch();
+uint8_t isTouchEvent();
+void readTouch(uint16_t *x, uint16_t *y);
 
 // makes a screen one color
 void fillScreen(uint16_t c);
