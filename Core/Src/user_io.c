@@ -154,13 +154,54 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 	resetChip();
 	LCD_Initial();
 	displayOn();
-	fillScreen(0x001f); // blue
+	fillScreen(0xffff); // make the screen all white
+}
+
+void sendWavetableI2C() {
+	// eeprom supports 32 bit writes
+	// need 16 bits for the 12 address bits
+	uint16_t send_buffer[1 + 2] = {EEPROM_DATA_START, 0, 0};
+
+	// send wavetable
+	for(int i = 0; i < WAVEFORM_SIZE; i+=2) {
+		// update the write address	
+		send_buffer[0] = EEPROM_DATA_START + i * 4;
+
+		// move over waveform information to the buffer
+		send_buffer[1] = waveform[i];
+		send_buffer[2] = waveform[i+1];
+		
+		HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, send_buffer, 6, HAL_MAX_DELAY);
+	}
+	// set confirmation of wavetable
+	send_buffer[0] = 0x0101;
+	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_DATA_START_WRITE, send_buffer, 1, HAL_MAX_DELAY);
+}
+
+uint8_t restoreWaveTableI2C() {
+	// check if there is a wavetable
+	uint8_t receive_buffer[1] = {0};
+	uint16_t set_address = WAVEFORM_ID_START;
+	HAL_I2C_Master_Transmit(&i2c_storage, EEPROM_ADDRESS_READ, &set_address, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, receive_buffer, 1, HAL_MAX_DELAY);
+
+	// read wavetable
+	if(receive_buffer[0] != 0x01) {
+		return 0;
+	}
+
+	// set the address to read from now.
+	set_address = WAVEFORM_DATA_START;
+	HAL_I2C_Master_Transmit(&i2c_storage, EEPROM_ADDRESS_READ, &set_address, 2, HAL_MAX_DELAY);
+	// there is a wavetable, lets read
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, waveform, WAVEFORM_SIZE*2, HAL_MAX_DELAY);
+	return 1;
 }
 
 void ui_loop() {
 	// Delay 10 seconds because the test does not need to be constantly running.
 	//HAL_Delay(1 * 1000);
-	HAL_SPI_Transmit_DMA(&m4_spi, (uint8_t *)waveform, WAVEFORM_SIZE);
+	//HAL_SPI_Transmit_DMA(&m4_spi, (uint8_t *)waveform, WAVEFORM_SIZE);
 	fillScreen(0xf800);
 	drawRect(200,120,599,360, 0x07e0);
 	HAL_Delay(1000);
@@ -175,7 +216,7 @@ void ui_loop() {
 	HAL_Delay(1000);
 	for(int i = 0; i < 800; i++) {
 		uint16_t y = undoScale(waveform[find_location(i)]);
-		drawPixel(i,y,0xffff);
+		drawPixel(i,y,0x0000);
 	}
 	HAL_Delay(5000);
 }

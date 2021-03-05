@@ -20,6 +20,16 @@
 #define LcdSyncReset_GPIO_Port GPIOC
 #define ScreenSelect_Pin GPIO_PIN_12
 #define ScreenSelect_GPIO_Port GPIOB
+
+#define EEPROM_ADDRESS_WRITE 0xa0
+#define EEPROM_ADDRESS_READ 0xa1
+
+// Where I will store whether or not a waveform
+// is actually in the eeprom
+#define WAVEFORM_ID_ADDR 0x0000
+// where the waveform data starts
+#define WAFORM_DATA_START 0x0001
+
 // Prototypes
 
 // called once in main to initialize the setup process.

@@ -7,6 +7,10 @@
 
 #include "ra8875.h"
 
+// const vars to save on ram
+const static uint16_t _width = 800;
+const static uint16_t _height = 480;
+
 /*
  * spiSend needs to send an 8 bit int over the spi lines to the ra8875
  */
@@ -15,7 +19,18 @@ void (*spiWrite)(uint8_t) = 0;
  * spiRead needs to read an 8 bit integer from the desired location
  */
 uint8_t (*spiRead)() = 0;
+
+/*
+ * chipSelect asserts or deasserts the spi CS line (active low)
+ * based on the input. If the input is 1, the chip should be active, if 0,
+ * it should be inactive
+ */
 void (*chipSelect)(uint8_t) = 0;
+
+/*
+ *	The reset command needs to assert the nRst pin for 1 ms, then deassert it and delay 10 ms.
+ */
+void (*resetRa8875)(void) = 0;
 
 void cmdWrite(uint8_t data) {
 	chipSelect(1);
@@ -45,15 +60,6 @@ uint8_t dataRead() {
 	chipSelect(0);
 	return d;
 }
-
-/*
- *	The reset command needs to assert the nRst pin for 1 ms, then deassert it and delay 10 ms.
- */
-void (*resetRa8875)(void) = 0;
-
-// const vars to save on ram
-const static uint16_t _width = 800;
-const static uint16_t _height = 480;
 
 void setSpi(void (*write)(uint8_t), uint8_t (*read)(), void (*select)(uint8_t)) {
 	spiWrite = write;
@@ -156,6 +162,26 @@ void displayOn() {
 	// turn on lcd enable
 	cmdWrite(0xc7); // gpiox is tied to lcd enable
 	dataWrite(0x01);
+}
+
+void enableTouch() {
+	// touch panel reg
+	cmdWrite(0x70);
+	// enable touch, clock speed, wake enable, and clck divider
+	dataWrite(0x80 | 0x30 | 0x08 | 0x04 );
+
+	// set it to auto mode
+	cmdWrite(0x71);
+	// configure it to debounce
+	dataWrite(0x04);
+
+	// configures for hardware interrupt pin
+	// need to preserve the state of this register though
+	cmdWrite(0xf0);
+	uint8_t r = dataRead();
+
+	cmdWrite(0xf0);
+	dataWrite(r | 0x04);
 }
 void drawRect(uint16_t x, uint16_t y, uint16_t x2, uint16_t y2, uint16_t color) {
 	// There is a built in function for making certain shapes
