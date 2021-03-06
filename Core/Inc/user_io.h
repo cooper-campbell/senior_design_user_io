@@ -32,21 +32,26 @@
 // where the calibration information will be saved.
 // it has to be after the wavetable
 // that is, to say, after 1 + 1746*2
-#define CALIBRATION_DATA_ID 3500
-#define CALIBRATION_DATA_START 3501
+
+// byte ordering: 0xDAC needs to be 0xAC0D
+#define CALIBRATION_DATA_ID 0xAC0D
+#define CALIBRATION_DATA_START 0xAD0D
+#define CALIBRATION_DATA_SECOND 0xB10D
 
 // Prototypes
 
 // called once in main to initialize the setup process.
 void ui_setup(I2C_HandleTypeDef hi2c1,
 		SPI_HandleTypeDef m4_spi,
-		SPI_HandleTypeDef screen_spi,
-		DMA_HandleTypeDef m4_dma
+		SPI_HandleTypeDef screen_spi
+		//DMA_HandleTypeDef m4_dma
 	);
 
 // called from main in an infinite loop.
 void ui_loop();
 
 void process_button();
+
+void process_spi();
 
 #endif /* INC_USER_IO_H_ */

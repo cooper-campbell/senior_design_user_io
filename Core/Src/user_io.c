@@ -19,14 +19,15 @@ int16_t waveform[WAVEFORM_SIZE] = {0};
 I2C_HandleTypeDef storage_i2c;
 SPI_HandleTypeDef m4_spi;
 SPI_HandleTypeDef screen_spi;
-DMA_HandleTypeDef m4_dma;
+//DMA_HandleTypeDef m4_dma;
 
 uint16_t scalex = 30;
 uint16_t scaley = 130;
 uint16_t divx = 950;
 uint16_t divy = 818;
 
-volatile uint8_t done_drawing = 0;
+volatile uint8_t button_press = 0;
+volatile uint8_t finish_spi_send = 0;
 
 int least_written = 800;
 int most_written = -1;
@@ -71,6 +72,10 @@ int16_t scale(uint16_t y) {
 
 uint16_t undoScale(int16_t y) {
 	return (y/136.5) + 240;
+}
+
+void transmit_wavetable() {
+	HAL_SPI_Transmit(&m4_spi, (uint8_t *)waveform, WAVEFORM_SIZE*2, HAL_MAX_DELAY);
 }
 
 void reset_waveform() {
@@ -214,17 +219,104 @@ void calibrate() {
 	else divy = recty3 - scaley;
 }
 
+uint8_t restoreCalibration() {
+	uint8_t receive_buffer[1] = {0};
+	uint16_t set_address = CALIBRATION_DATA_ID;
+
+	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)&set_address, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)receive_buffer, 1, HAL_MAX_DELAY);
+	if(receive_buffer[0] != 0xaa)
+		return 0;
+
+	set_address = CALIBRATION_DATA_START;
+	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)&set_address, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&scalex, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&scaley, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&divx, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&divy, 2, HAL_MAX_DELAY);
+	return 1;
+}
+
+void wait_user_input() {
+	uint16_t tmp;
+	while(1) {
+		if(isTouchEvent()) {
+			readTouch(&tmp, &tmp);
+			break;
+		}
+		if(button_press) {
+			button_press = 0;
+			break;
+		}
+	}
+}
+// eeprom has different byte ordering.
+uint16_t byte_flip(uint16_t address) {
+	uint16_t tmp = (address >> 8) & 0x0f;
+	tmp |= ((address & 0xff) << 8);
+	return tmp;
+}
+
+uint8_t sendWavetableI2C() {
+	// eeprom supports 32 bit writes
+	// need 16 bits for the 12 address bits
+	uint16_t send_buffer[1 + 2] = {byte_flip(WAVEFORM_DATA_START), 0, 0};
+
+	// send wavetable
+	for(int i = 0; i < WAVEFORM_SIZE; i+=2) {
+		// update the write address
+		send_buffer[0] = byte_flip(WAVEFORM_DATA_START + i * 2);
+
+		// move over waveform information to the buffer
+		send_buffer[1] = waveform[i];
+		send_buffer[2] = waveform[i+1];
+
+		int x = HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 6, HAL_MAX_DELAY);
+		if(x == HAL_ERROR) {
+			return 0;
+		}
+		HAL_Delay(10);
+	}
+	// set confirmation of wavetable
+	send_buffer[0] = byte_flip(WAVEFORM_ID_ADDR);
+	send_buffer[1] = 0xaaaa;
+	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 3, HAL_MAX_DELAY);
+	return 1;
+}
+
+uint8_t restoreWaveTableI2C() {
+	// check if there is a wavetable
+	uint8_t receive_buffer[1] = {0};
+	uint16_t set_address = byte_flip(WAVEFORM_ID_ADDR);
+	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&set_address, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)receive_buffer, 1, HAL_MAX_DELAY);
+
+	// read wavetable
+	if(receive_buffer[0] != 0xaa) {
+		return 0;
+	}
+
+	// set the address to read from now.
+	set_address = byte_flip(WAVEFORM_DATA_START);
+	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&set_address, 2, HAL_MAX_DELAY);
+	// there is a wavetable, lets read
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)waveform, WAVEFORM_SIZE*2, HAL_MAX_DELAY);
+	return 1;
+}
+
 void ui_setup(I2C_HandleTypeDef hi2c1,
 		SPI_HandleTypeDef spi1,
-		SPI_HandleTypeDef spi2,
-		DMA_HandleTypeDef dma1
+		SPI_HandleTypeDef spi2
+		//DMA_HandleTypeDef dma1
 	) {
 	storage_i2c = hi2c1;
 	m4_spi = spi1;
 	screen_spi = spi2;
-	m4_dma = dma1;
+	//m4_dma = dma1;
 
-	const char msg[] = "Touch each corner as the red square appears";
+	const char msg_calibrate[] = "Touch each corner as the red square appears";
+	const char msg_restore[] = "Calibration settings restored, press anywhere to continue";
+	const char msg_waveform_restore[] = "Restored waveform from previous session, press to continue";
 
 	// Dummy data to start
 	reset_waveform();
@@ -243,52 +335,25 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 	fillScreen(0xffff); // make the screen all white
 	textMode();
 	setTextColor(0x0000);
-	setTextPosition(1023/2 - 8*(sizeof(msg)), 511/2);
-	screenWrite(msg);
+	if(restoreCalibration()) {
+		setTextPosition(1023/2 - 8*(sizeof(msg_restore)), 511/2);
+		screenWrite(msg_restore);
+	} else {
+		setTextPosition(1023/2 - 8*(sizeof(msg_calibrate)), 511/2);
+		screenWrite(msg_calibrate);
+		calibrate();
+	}
+	wait_user_input();
+
+	// check for waveform.
+	if(restoreWaveTableI2C()) {
+		setTextPosition(1023/2 - 8*(sizeof(msg_waveform_restore)), 511/2-32);
+		screenWrite(msg_waveform_restore);
+		wait_user_input();
+	}
 	graphicsMode();
-	calibrate();
 }
 
-void sendWavetableI2C() {
-	// eeprom supports 32 bit writes
-	// need 16 bits for the 12 address bits
-	uint16_t send_buffer[1 + 2] = {WAVEFORM_DATA_START, 0, 0};
-
-	// send wavetable
-	for(int i = 0; i < WAVEFORM_SIZE; i+=2) {
-		// update the write address	
-		send_buffer[0] = WAVEFORM_DATA_START + i * 4;
-
-		// move over waveform information to the buffer
-		send_buffer[1] = waveform[i];
-		send_buffer[2] = waveform[i+1];
-		
-		HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 6, HAL_MAX_DELAY);
-	}
-	// set confirmation of wavetable
-	send_buffer[0] = 0x0101;
-	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 1, HAL_MAX_DELAY);
-}
-
-uint8_t restoreWaveTableI2C() {
-	// check if there is a wavetable
-	uint8_t receive_buffer[1] = {0};
-	uint16_t set_address = WAVEFORM_ID_ADDR;
-	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&set_address, 2, HAL_MAX_DELAY);
-	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)receive_buffer, 1, HAL_MAX_DELAY);
-
-	// read wavetable
-	if(receive_buffer[0] != 0x01) {
-		return 0;
-	}
-
-	// set the address to read from now.
-	set_address = WAVEFORM_DATA_START;
-	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&set_address, 2, HAL_MAX_DELAY);
-	// there is a wavetable, lets read
-	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)waveform, WAVEFORM_SIZE*2, HAL_MAX_DELAY);
-	return 1;
-}
 
 void sendCalibration() {
 	uint16_t send_buffer[1 + 2] = {CALIBRATION_DATA_START, 0, 0};
@@ -297,30 +362,14 @@ void sendCalibration() {
 	send_buffer[2] = scaley;
 	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 6, HAL_MAX_DELAY);
 
+	send_buffer[0] = CALIBRATION_DATA_SECOND;
 	send_buffer[1] = divx;
 	send_buffer[2] = divy;
 	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 6, HAL_MAX_DELAY);
 
 	send_buffer[0] = CALIBRATION_DATA_ID;
-	send_buffer[2] = 0xffff;
-	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 4, HAL_MAX_DELAY);
-}
-
-uint8_t restoreCalibration() {
-	uint8_t receive_buffer[1] = {0};
-	uint16_t set_address = CALIBRATION_DATA_ID;
-
-	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)&set_address, 2, HAL_MAX_DELAY);
-	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)receive_buffer, 1, HAL_MAX_DELAY);
-	if(receive_buffer[0] != 0xff)
-		return 0;
-
-	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)&set_address, 2, HAL_MAX_DELAY);
-	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&scalex, 2, HAL_MAX_DELAY);
-	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&scaley, 2, HAL_MAX_DELAY);
-	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&divx, 2, HAL_MAX_DELAY);
-	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&divy, 2, HAL_MAX_DELAY);
-	return 1;
+	send_buffer[1] = 0xaaaa;
+	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 3, HAL_MAX_DELAY);
 }
 
 void screen_test() {
@@ -347,13 +396,19 @@ void screen_test() {
 }
 
 void process_button() {
-	done_drawing = 1;
+	button_press = 1;
 }
 
-void ui_loop() {
+void process_spi() {
+	finish_spi_send = 1;
+}
+
+void usr_draw_waveform_loop() {
 	//reset_waveform();
 	//HAL_Delay(100);
+	const char msg_fail_save[] = "Failed to save waveform";
 	fillScreen(0xffff);
+	uint8_t change_made = 0;
 
 	//calibrate();
 	//HAL_Delay(5000);
@@ -363,9 +418,13 @@ void ui_loop() {
 		//drawPixel(i,y,0x0000);
 	}
 	//while(1);
-	while(!done_drawing) {
+	while(!button_press) {
 		int touch = isTouchEvent();
 		if(touch) {
+			if(change_made == 0) {
+				reset_waveform();
+				change_made = 1;
+			}
 			uint16_t tmpy, tmpx;
 			readTouch(&tmpx, &tmpy);
 			tmpx = (tmpx-scalex) * 800 / divx;
@@ -382,16 +441,25 @@ void ui_loop() {
 	scale_user_streamed();
 	interpolate_waveform();
 	normalize_waveform();
-	done_drawing = 0;
+	button_press = 0;
 	fillScreen(0xffff);
+	if(!sendWavetableI2C()) {
+		textMode();
+		setTextColor(0x0000);
+		setTextPosition(1024/2, 512/2);
+		screenWrite(msg_fail_save);
+		graphicsMode();
+		return;
+	}
 	for(int i = 0; i < 800; i++) {
 		uint16_t y = undoScale(waveform[find_location(i)]);
 		drawRect(i,y,i+2, y+2,0x0000);
 		//drawPixel(i,y,0x0000);
 	}
-
-	// right now just hang
-	while(1);
-	//HAL_Delay(9000);
 }
 
+void ui_loop() {
+	//transmit_wavetable();
+	usr_draw_waveform_loop();
+	while(1);
+}

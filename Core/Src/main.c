@@ -44,7 +44,6 @@ I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi2;
-DMA_HandleTypeDef hdma_spi1_tx;
 
 /* USER CODE BEGIN PV */
 
@@ -53,7 +52,6 @@ DMA_HandleTypeDef hdma_spi1_tx;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_I2C1_Init(void);
@@ -67,6 +65,13 @@ void HAL_GPIO_EXTI_Callback(uint16_t Gpio_Pin) {
 	if(Gpio_Pin == Button_Pin) {
 		process_button();
 	}
+}
+void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi1) {
+	process_spi();
+	return;
+}
+void TransferComplete(DMA_HandleTypeDef *_hdma) {
+	return;
 }
 /* USER CODE END 0 */
 
@@ -98,12 +103,12 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
   MX_SPI1_Init();
   MX_SPI2_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  ui_setup(hi2c1, hspi1, hspi2, hdma_spi1_tx);
+  //HAL_DMA_RegisterCallback(&hdma_spi1_tx, HAL_DMA_XFER_CPLT_CB_ID, TransferComplete);
+  ui_setup(hi2c1, hspi1, hspi2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -178,7 +183,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x0000020B;
+  hi2c1.Init.Timing = 0x2000090E;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -285,22 +290,6 @@ static void MX_SPI2_Init(void)
   /* USER CODE BEGIN SPI2_Init 2 */
 
   /* USER CODE END SPI2_Init 2 */
-
-}
-
-/**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel2_3_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_3_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
 
 }
 
