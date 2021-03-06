@@ -29,6 +29,11 @@
 #define WAVEFORM_ID_ADDR 0x0000
 // where the waveform data starts
 #define WAVEFORM_DATA_START 0x0001
+// where the calibration information will be saved.
+// it has to be after the wavetable
+// that is, to say, after 1 + 1746*2
+#define CALIBRATION_DATA_ID 3500
+#define CALIBRATION_DATA_START 3501
 
 // Prototypes
 
@@ -41,5 +46,7 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 
 // called from main in an infinite loop.
 void ui_loop();
+
+void process_button();
 
 #endif /* INC_USER_IO_H_ */

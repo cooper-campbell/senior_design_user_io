@@ -157,7 +157,50 @@ void textMode() {
 	cmdWrite(0x40);
 	dataWrite((tmp | 0x80));
 
+	cmdWrite(0x21);
+	tmp = dataRead();
+	tmp &= ~(0xa0);
+	cmdWrite(0x21);
+	dataWrite(tmp);
+}
 
+void setTextColor(uint16_t c1) {
+	uint8_t tmp;
+	cmdWrite(0x63);
+	dataWrite((c1 & 0xf800) >> 11);
+	cmdWrite(0x64);
+	dataWrite((c1 & 0x7e0) >> 5);
+	cmdWrite(0x65);
+	dataWrite((c1 & 0x001f));
+	cmdWrite(0x22);
+	tmp = dataRead();
+	dataWrite(tmp | 0x40);
+}
+
+void setTextPosition(uint16_t x, uint16_t y) {
+	cmdWrite(0x2a);
+	dataWrite((x & 0xff));
+
+	cmdWrite(0x2b);
+	dataWrite((x >> 8) & 0xff);
+
+	cmdWrite(0x2c);
+	dataWrite((y & 0xff));
+
+	cmdWrite(0x2d);
+	dataWrite((y >> 8) & 0xff);
+}
+
+void screenWrite(const char *text) {
+	int i = 0;
+	char c = text[i];
+
+	cmdWrite(0x02);
+	while(c) {
+		dataWrite(c);
+		HAL_Delay(1);
+		c = text[++i];
+	}
 }
 
 void displayOn() {

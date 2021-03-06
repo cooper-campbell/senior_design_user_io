@@ -10,6 +10,8 @@
 #include "user_io.h"
 #include <stdint.h>
 
+#define USR_WRTN_TAG 0x4000
+
 // Private vars
 int16_t waveform[WAVEFORM_SIZE] = {0};
 // anonymous structure to count waveform properly
@@ -19,10 +21,15 @@ SPI_HandleTypeDef m4_spi;
 SPI_HandleTypeDef screen_spi;
 DMA_HandleTypeDef m4_dma;
 
-uint16_t scalex = 0;
-uint16_t scaley = 0;
-uint16_t divx = 1;
-uint16_t divy = 1;
+uint16_t scalex = 30;
+uint16_t scaley = 130;
+uint16_t divx = 950;
+uint16_t divy = 818;
+
+volatile uint8_t done_drawing = 0;
+
+int least_written = 800;
+int most_written = -1;
 
 // functions for the ra8875 to use
 void resetChip() {
@@ -43,6 +50,7 @@ void spiSend(uint8_t d) {
 	HAL_SPI_Transmit(&screen_spi, &d, 1, HAL_MAX_DELAY);
 	//HAL_GPIO_WritePin(ScreenSelect_GPIO_Port, ScreenSelect_Pin, GPIO_PIN_SET);
 }
+
 uint8_t spiReceive() {
 	uint8_t d = 0;
 	//HAL_GPIO_WritePin(ScreenSelect_GPIO_Port, ScreenSelect_Pin, GPIO_PIN_RESET);
@@ -65,9 +73,37 @@ uint16_t undoScale(int16_t y) {
 	return (y/136.5) + 240;
 }
 
+void reset_waveform() {
+	for(int i = 0; i < WAVEFORM_SIZE; i++) {
+		waveform[i] = 0;
+	}
+}
+
 void stream_touch_sample(uint16_t x, uint16_t y) {
 	int location = find_location(x);
-	waveform[location] = scale(y);
+	waveform[location] = USR_WRTN_TAG | y;
+	if(x > most_written) most_written = x;
+	if(x < least_written) least_written = x;
+}
+
+void interpolate_user_streamed_wave() {
+	int16_t copy = waveform[find_location(least_written)];
+
+	for(int i = 0; i < least_written; i++) {
+		waveform[find_location(i)] = copy;
+	}
+	for(int i = least_written+1; i < 800; i++) {
+		int16_t tmp = waveform[find_location(i)];
+		if(tmp & USR_WRTN_TAG) copy = tmp;
+		else waveform[find_location(i)] = copy;
+	}
+}
+
+void scale_user_streamed() {
+	for(int i = 0; i < 800; i++) {
+		int16_t val = waveform[find_location(i)];
+		waveform[find_location(i)] = scale(val & (~USR_WRTN_TAG));
+	}
 }
 
 void interpolate_waveform() {
@@ -136,6 +172,48 @@ void normalize_waveform() {
 	*/
 }
 
+void calibrate() {
+	uint16_t rectx1, recty1, rectx2, recty2, rectx3, recty3, rectx4, recty4;
+
+	drawRect(0, 0, 4, 4, 0xf800);
+	while(!isTouchEvent());
+	HAL_Delay(500);
+	readTouch(&rectx1, &recty1);
+	drawRect(0, 0, 4, 4, 0xffff);
+	HAL_Delay(1000);
+
+	drawRect(795, 0, 799, 4, 0xf800);
+	while(!isTouchEvent());
+	HAL_Delay(500);
+	readTouch(&rectx2, &recty2);
+	drawRect(795, 0, 799, 4, 0xffff);
+	HAL_Delay(1000);
+
+	drawRect(795, 475, 799, 479, 0xf800);
+	while(!isTouchEvent());
+	HAL_Delay(500);
+	readTouch(&rectx3, &recty3);
+	drawRect(795, 475, 799, 479, 0xffff);
+	HAL_Delay(1000);
+
+	drawRect(0, 475, 4, 479, 0xf800);
+	while(!isTouchEvent());
+	HAL_Delay(500);
+	readTouch(&rectx4, &recty4);
+	drawRect(0, 475, 4, 479, 0xffff);;
+	HAL_Delay(1000);
+
+	if(rectx1 < rectx4) scalex = rectx1;
+	else scalex = rectx4;
+	if(rectx2 > rectx3) divx = rectx2-scalex;
+	else divx = rectx3 - scalex;
+
+	if(recty1 < recty4) scaley = recty1;
+	else scaley = recty4;
+	if(recty2 > recty3) divy = recty2-scaley;
+	else divy = recty3 - scaley;
+}
+
 void ui_setup(I2C_HandleTypeDef hi2c1,
 		SPI_HandleTypeDef spi1,
 		SPI_HandleTypeDef spi2,
@@ -145,9 +223,11 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 	m4_spi = spi1;
 	screen_spi = spi2;
 	m4_dma = dma1;
+
+	const char msg[] = "Touch each corner as the red square appears";
+
 	// Dummy data to start
-	for(int i = 0; i < WAVEFORM_SIZE; i++)
-		waveform[i] = sin_wave[i];
+	reset_waveform();
 
 	setSpi(spiSend, spiReceive, selectChip);
 	setReset(resetChip);
@@ -161,6 +241,12 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 	enableTouch();
 	displayOn();
 	fillScreen(0xffff); // make the screen all white
+	textMode();
+	setTextColor(0x0000);
+	setTextPosition(1023/2 - 8*(sizeof(msg)), 511/2);
+	screenWrite(msg);
+	graphicsMode();
+	calibrate();
 }
 
 void sendWavetableI2C() {
@@ -203,6 +289,40 @@ uint8_t restoreWaveTableI2C() {
 	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)waveform, WAVEFORM_SIZE*2, HAL_MAX_DELAY);
 	return 1;
 }
+
+void sendCalibration() {
+	uint16_t send_buffer[1 + 2] = {CALIBRATION_DATA_START, 0, 0};
+
+	send_buffer[1] = scalex;
+	send_buffer[2] = scaley;
+	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 6, HAL_MAX_DELAY);
+
+	send_buffer[1] = divx;
+	send_buffer[2] = divy;
+	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 6, HAL_MAX_DELAY);
+
+	send_buffer[0] = CALIBRATION_DATA_ID;
+	send_buffer[2] = 0xffff;
+	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 4, HAL_MAX_DELAY);
+}
+
+uint8_t restoreCalibration() {
+	uint8_t receive_buffer[1] = {0};
+	uint16_t set_address = CALIBRATION_DATA_ID;
+
+	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)&set_address, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)receive_buffer, 1, HAL_MAX_DELAY);
+	if(receive_buffer[0] != 0xff)
+		return 0;
+
+	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)&set_address, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&scalex, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&scaley, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&divx, 2, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&storage_i2c, EEPROM_ADDRESS_READ, (uint8_t *)&divy, 2, HAL_MAX_DELAY);
+	return 1;
+}
+
 void screen_test() {
 	// Delay 10 seconds because the test does not need to be constantly running.
 		//HAL_Delay(1 * 1000);
@@ -226,77 +346,52 @@ void screen_test() {
 		HAL_Delay(5000);
 }
 
-void calibrate() {
-	uint16_t rectx1, recty1, rectx2, recty2, rectx3, recty3, rectx4, recty4;
-
-	fillScreen(0xffff);
-	drawRect(0, 0, 4, 4, 0xf800);
-	while(!isTouchEvent());
-	HAL_Delay(500);
-	readTouch(&rectx1, &recty1);
-	fillScreen(0xffff);
-	HAL_Delay(1000);
-
-	drawRect(795, 0, 799, 4, 0xf800);
-	while(!isTouchEvent());
-	HAL_Delay(500);
-	readTouch(&rectx2, &recty2);
-	fillScreen(0xffff);
-	HAL_Delay(1000);
-
-	drawRect(795, 475, 799, 479, 0xf800);
-	while(!isTouchEvent());
-	HAL_Delay(500);
-	readTouch(&rectx3, &recty3);
-	fillScreen(0xffff);
-	HAL_Delay(1000);
-
-	drawRect(0, 475, 4, 479, 0xf800);
-	while(!isTouchEvent());
-	HAL_Delay(500);
-	readTouch(&rectx4, &recty4);
-	fillScreen(0xffff);
-	HAL_Delay(1000);
-
+void process_button() {
+	done_drawing = 1;
 }
+
 void ui_loop() {
+	//reset_waveform();
 	//HAL_Delay(100);
 	fillScreen(0xffff);
-	const uint16_t width = 800;
-	const uint16_t height = 480;
-	uint16_t max_x = 0;
-	uint16_t min_x = 799;
-	uint16_t max_y = 0;
-	uint16_t min_y = 479;
 
 	//calibrate();
 	//HAL_Delay(5000);
 	for(int i = 0; i < 800; i++) {
 		uint16_t y = undoScale(waveform[find_location(i)]);
 		drawRect(i,y,i+2, y+2,0x0000);
+		//drawPixel(i,y,0x0000);
 	}
 	//while(1);
-	int count = 0;
-	while(1000) {
+	while(!done_drawing) {
 		int touch = isTouchEvent();
 		if(touch) {
 			uint16_t tmpy, tmpx;
 			readTouch(&tmpx, &tmpy);
-			tmpx = (tmpx-30) * 800 / 950;
-			tmpy = (tmpy-130) * 480 / 818;
-			if(tmpx > max_x) max_x = tmpx;
-			if(tmpx < min_x) min_x = tmpx;
-			if(tmpy > max_y) max_y = tmpy;
-			if(tmpy < min_y) min_y = tmpy;
+			tmpx = (tmpx-scalex) * 800 / divx;
+			tmpy = (tmpy-scaley) * 480 / divy;
+			if(tmpx > 800) tmpx = 800;
+			if(tmpy > 480) tmpy = 480;
 			drawRect(tmpx, 0, tmpx+2, 479, 0xffff);
 			drawRect(tmpx, tmpy, tmpx+2, tmpy+2, 0x0000);
 			stream_touch_sample(tmpx, tmpy);
-			count++;
 		}
 	}
+
+	interpolate_user_streamed_wave();
+	scale_user_streamed();
 	interpolate_waveform();
 	normalize_waveform();
+	done_drawing = 0;
+	fillScreen(0xffff);
+	for(int i = 0; i < 800; i++) {
+		uint16_t y = undoScale(waveform[find_location(i)]);
+		drawRect(i,y,i+2, y+2,0x0000);
+		//drawPixel(i,y,0x0000);
+	}
 
-	//HAL_Delay(3000);
+	// right now just hang
+	while(1);
+	//HAL_Delay(9000);
 }
 

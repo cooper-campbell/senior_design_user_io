@@ -40,6 +40,14 @@ void enableTouch();
 uint8_t isTouchEvent();
 void readTouch(uint16_t *x, uint16_t *y);
 
+// graphic vs text mdoes
+void graphicsMode();
+void textMode();
+void setTextColor(uint16_t c1);
+void setTextPosition(uint16_t x, uint16_t y);
+
+void screenWrite(const char *);
+
 // makes a screen one color
 void fillScreen(uint16_t c);
 void drawRect(uint16_t x, uint16_t y, uint16_t x2, uint16_t y2, uint16_t color);
