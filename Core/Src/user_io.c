@@ -32,6 +32,17 @@ volatile uint8_t finish_spi_send = 0;
 int least_written = 800;
 int most_written = -1;
 
+uint8_t unsaved_changes = 0;
+
+enum menu_options {
+	SAVE,
+	LOAD,
+	SEND,
+	CALIBRATE,
+	CLEAR,
+	BACK
+};
+
 // functions for the ra8875 to use
 void resetChip() {
 	// the time for this is exaggerated to make sure that it works
@@ -177,6 +188,19 @@ void normalize_waveform() {
 	*/
 }
 
+void wait_user_touch() {
+	while(!isTouchEvent());
+	uint16_t tmp;
+
+	while(isTouchEvent()) {
+		readTouch(&tmp, &tmp);
+	}
+	HAL_Delay(250);
+	while(isTouchEvent()) {
+		readTouch(&tmp, &tmp);
+	}
+}
+
 void calibrate() {
 	uint16_t rectx1, recty1, rectx2, recty2, rectx3, recty3, rectx4, recty4;
 
@@ -205,7 +229,7 @@ void calibrate() {
 	while(!isTouchEvent());
 	HAL_Delay(500);
 	readTouch(&rectx4, &recty4);
-	drawRect(0, 475, 4, 479, 0xffff);;
+	drawRect(0, 475, 4, 479, 0xffff);
 	HAL_Delay(1000);
 
 	if(rectx1 < rectx4) scalex = rectx1;
@@ -315,8 +339,6 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 	//m4_dma = dma1;
 
 	const char msg_calibrate[] = "Touch each corner as the red square appears";
-	const char msg_restore[] = "Calibration settings restored, press anywhere to continue";
-	const char msg_waveform_restore[] = "Restored waveform from previous session, press to continue";
 
 	// Dummy data to start
 	reset_waveform();
@@ -333,43 +355,45 @@ void ui_setup(I2C_HandleTypeDef hi2c1,
 	enableTouch();
 	displayOn();
 	fillScreen(0xffff); // make the screen all white
-	textMode();
-	setTextColor(0x0000);
-	if(restoreCalibration()) {
-		setTextPosition(1023/2 - 8*(sizeof(msg_restore)), 511/2);
-		screenWrite(msg_restore);
-	} else {
+	if(!restoreCalibration()) {
+		textMode();
+		setTextColor(0x0000);
 		setTextPosition(1023/2 - 8*(sizeof(msg_calibrate)), 511/2);
 		screenWrite(msg_calibrate);
+		graphicsMode();
 		calibrate();
 	}
-	wait_user_input();
-
-	// check for waveform.
-	if(restoreWaveTableI2C()) {
-		setTextPosition(1023/2 - 8*(sizeof(msg_waveform_restore)), 511/2-32);
-		screenWrite(msg_waveform_restore);
-		wait_user_input();
-	}
-	graphicsMode();
 }
 
-
-void sendCalibration() {
+uint8_t sendCalibration() {
 	uint16_t send_buffer[1 + 2] = {CALIBRATION_DATA_START, 0, 0};
+	int res;
 
 	send_buffer[1] = scalex;
 	send_buffer[2] = scaley;
-	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 6, HAL_MAX_DELAY);
+	res = HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 6, HAL_MAX_DELAY);
+	if(res == HAL_ERROR) {
+		return 0;
+	}
+	HAL_Delay(5);
 
 	send_buffer[0] = CALIBRATION_DATA_SECOND;
 	send_buffer[1] = divx;
 	send_buffer[2] = divy;
-	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 6, HAL_MAX_DELAY);
+	res = HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 6, HAL_MAX_DELAY);
+	if(res == HAL_ERROR) {
+		return 0;
+	}
+	HAL_Delay(5);
 
 	send_buffer[0] = CALIBRATION_DATA_ID;
 	send_buffer[1] = 0xaaaa;
-	HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 3, HAL_MAX_DELAY);
+	res = HAL_I2C_Master_Transmit(&storage_i2c, EEPROM_ADDRESS_WRITE, (uint8_t *)send_buffer, 3, HAL_MAX_DELAY);
+	if(res == HAL_ERROR) {
+		return 0;
+	}
+	HAL_Delay(5);
+	return 1;
 }
 
 void screen_test() {
@@ -403,20 +427,43 @@ void process_spi() {
 	finish_spi_send = 1;
 }
 
-void usr_draw_waveform_loop() {
-	//reset_waveform();
-	//HAL_Delay(100);
-	const char msg_fail_save[] = "Failed to save waveform";
+void draw_waveform_screen() {
 	fillScreen(0xffff);
-	uint8_t change_made = 0;
-
-	//calibrate();
-	//HAL_Delay(5000);
 	for(int i = 0; i < 800; i++) {
 		uint16_t y = undoScale(waveform[find_location(i)]);
 		drawRect(i,y,i+2, y+2,0x0000);
 		//drawPixel(i,y,0x0000);
 	}
+}
+void wait_user_back_button() {
+	drawRect(0,0,60, 40, 0x618c);
+	textMode();
+	setTextColor(0x0000);
+	setTextPosition(20, 20);
+	screenWrite("Back");
+	graphicsMode();
+	HAL_Delay(500);
+	uint16_t tmpx, tmpy;
+	while(!isTouchEvent());
+	while(1) {
+		if(isTouchEvent()) {
+			readTouch(&tmpx, &tmpy);
+			tmpx = (tmpx - scalex) * 800 / divx;
+			tmpy = (tmpy - scaley) * 480 / divy;
+			if((tmpx < 60) && (tmpy < 40)) break;
+		}
+	}
+	while(isTouchEvent()) readTouch(&tmpx, &tmpy);
+}
+void usr_draw_waveform_loop() {
+	//reset_waveform();
+	//HAL_Delay(100);
+	//const char msg_fail_save[] = "Failed to save waveform";
+	fillScreen(0xffff);
+	uint8_t change_made = 0;
+	draw_waveform_screen();
+	//calibrate();
+	//HAL_Delay(5000);
 	//while(1);
 	while(!button_press) {
 		int touch = isTouchEvent();
@@ -442,24 +489,167 @@ void usr_draw_waveform_loop() {
 	interpolate_waveform();
 	normalize_waveform();
 	button_press = 0;
-	fillScreen(0xffff);
-	if(!sendWavetableI2C()) {
+
+	/*if(!sendWavetableI2C()) {
 		textMode();
 		setTextColor(0x0000);
 		setTextPosition(1024/2, 512/2);
 		screenWrite(msg_fail_save);
 		graphicsMode();
 		return;
+	}*/
+	draw_waveform_screen();
+
+	wait_user_back_button();
+	HAL_Delay(250);
+	uint16_t tmp;
+	if(isTouchEvent())
+		while(isTouchEvent()) readTouch(&tmp, &tmp);
+	unsaved_changes = 1;
+}
+
+enum menu_options main_menu_start() {
+	// options:
+	// save, load, calibrate, clear, send
+	const enum menu_options menu_items[] = {SAVE, LOAD, CALIBRATE, CLEAR, SEND};
+	const uint16_t color_options[] = {
+			(17 << 11) | (31 << 5) | (0),
+			(27 << 11) | (0 << 5) | (14),
+			(0 << 11) | (20 << 5) | (28),
+			(30 << 11) | (22 << 5) | (0),
+			(0 << 11) | (28 << 5) | (12)
+	};
+	const uint16_t x_locs[] = {
+			380, 540, 700, 60, 220
+	};
+	const uint16_t rs[] = {
+			90, 34, 30, 30, 34
+	};
+	uint8_t offset = 1;
+
+	fillScreen(0xffff);
+	uint16_t tmp;
+	while(isTouchEvent()) readTouch(&tmp, &tmp);
+	HAL_Delay(500);
+	enableTouch();
+	button_press = 0;
+	while(!button_press) {
+		for(uint8_t i = 0; i < sizeof(menu_items); i++) {
+			uint8_t ptr = (i+offset) % sizeof(menu_items);
+			drawCircle(x_locs[i], 240, rs[i], color_options[ptr]);
+		}
+
+		textMode();
+		setTextColor(0x0000);
+		setTextPosition(360, 225);
+
+		switch(menu_items[offset]) {
+			case SAVE:
+				screenWrite("Save");
+				break;
+			case LOAD:
+				screenWrite("Load");
+				break;
+			case CALIBRATE:
+				screenWrite("Cali.");
+				break;
+			case CLEAR:
+				screenWrite("New");
+				break;
+			case SEND:
+				screenWrite("Send");
+				break;
+			case BACK:
+				break;
+		}
+		graphicsMode();
+		while(!button_press) {
+			if(isTouchEvent()) {
+				uint16_t tmpx, tmpy;
+				readTouch(&tmpx, &tmpy);
+				tmpx = (tmpx-scalex) * 800 / divx;
+				tmpy = (tmpy-scaley) * 480/divy;
+				if(tmpx > 460)
+					offset = (offset + 1) % sizeof(menu_items);
+				else if(tmpx < 270)
+					offset = (offset + (sizeof(menu_items) - 1)) % sizeof(menu_items);
+				else if(tmpy > 150 && tmpy < 330)// they select the option
+					button_press = 1;
+				// wait for user to stop touching
+				HAL_Delay(250);
+				while(isTouchEvent())
+					readTouch(&tmpx, &tmpy);
+				break;
+			}
+		}
 	}
-	for(int i = 0; i < 800; i++) {
-		uint16_t y = undoScale(waveform[find_location(i)]);
-		drawRect(i,y,i+2, y+2,0x0000);
-		//drawPixel(i,y,0x0000);
-	}
+	button_press = 0;
+
+	return menu_items[offset];
+}
+
+void freeze() {
+	while(1);
+}
+
+void consumeTouch() {
+	uint16_t tmp;
+	readTouch(&tmp, &tmp);
+}
+
+void loading_screen_transmit() {
+	textMode();
+	setTextColor(0x0000);
+	setTextPosition(330, 225);
+	screenWrite("Sending, this may take a moment.");
+	graphicsMode();
 }
 
 void ui_loop() {
 	//transmit_wavetable();
-	usr_draw_waveform_loop();
+	//usr_draw_waveform_loop();
+	while(1) {
+		enum menu_options chosen = main_menu_start();
+		fillScreen(0xffff);
+
+		switch(chosen) {
+			case SAVE:
+				loading_screen_transmit();
+				if(!sendWavetableI2C()) {
+					fillScreen(0xf800);
+					freeze();
+				}
+				break;
+			case LOAD:
+				if(!restoreWaveTableI2C()) {
+					fillScreen(0xf800);
+					freeze();
+				}
+				draw_waveform_screen();
+				wait_user_touch();
+				break;
+			case SEND:
+				transmit_wavetable();
+				draw_waveform_screen();
+				break;
+			case CALIBRATE:
+				calibrate();
+				if(!sendCalibration()) {
+					fillScreen(0xf800);
+					freeze();
+				}
+				break;
+			case CLEAR:
+				reset_waveform();
+				usr_draw_waveform_loop();
+				break;
+			case BACK:
+				break;
+		}
+		disableTouch();
+		if(isTouchEvent()) consumeTouch();
+	}
+
+	fillScreen(0x001f);
 	while(1);
 }

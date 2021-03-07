@@ -243,6 +243,21 @@ void enableTouch() {
 	dataWrite(r | 0x04);
 }
 
+void disableTouch() {
+	// configures for hardware interrupt pin
+	// need to preserve the state of this register though
+	cmdWrite(0xf0);
+	uint8_t r = dataRead();
+
+	cmdWrite(0xf0);
+	dataWrite(r & ~0x04);
+
+	// touch panel reg
+	cmdWrite(0x70);
+	// disable touch, clock speed, wake enable, and clck divider
+	dataWrite(0x00);
+}
+
 uint8_t isTouchEvent() {
 	cmdWrite(0xf1);
 
@@ -251,7 +266,6 @@ uint8_t isTouchEvent() {
 }
 
 void readTouch(uint16_t *x, uint16_t *y) {
-
 	uint16_t tmp;
 
 	cmdWrite(0x72);
@@ -323,6 +337,39 @@ void drawRect(uint16_t x, uint16_t y, uint16_t x2, uint16_t y2, uint16_t color) 
 }
 void fillScreen(uint16_t color) {
 	drawRect(0,0,_width-1, _height-1, color);
+}
+
+void drawCircle(uint16_t x, uint16_t y, uint8_t r, uint16_t color) {
+	cmdWrite(0x99);
+	dataWrite(x&0xff);
+
+	cmdWrite(0x9a);
+	dataWrite((x >> 8) & 0xff);
+
+	cmdWrite(0x9b);
+	dataWrite(y&0xff);
+
+	cmdWrite(0x9c);
+	dataWrite((y>>8)&0xff);
+
+	cmdWrite(0x9d);
+	dataWrite(r);
+
+	cmdWrite(0x63);
+	dataWrite((color & 0xf800) >> 11);
+	cmdWrite(0x64);
+	dataWrite((color & 0x07e0) >> 5);
+	cmdWrite(0x65);
+	dataWrite(color & 0x001f);
+
+	cmdWrite(0x90);
+	dataWrite(0x40 | 0x20);
+
+	uint8_t wait = 0;
+	do {
+		cmdWrite(0x90);
+		wait = dataRead();
+	} while((wait & 0x40));
 }
 
 void drawLine(uint16_t x, uint16_t y, uint16_t x1, uint16_t y1, uint16_t color) {

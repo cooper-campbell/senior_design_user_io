@@ -37,6 +37,7 @@ void LCD_Initial(void);
 // This will configure the display on for our purposes
 void displayOn();
 void enableTouch();
+void disableTouch();
 uint8_t isTouchEvent();
 void readTouch(uint16_t *x, uint16_t *y);
 
@@ -51,6 +52,7 @@ void screenWrite(const char *);
 // makes a screen one color
 void fillScreen(uint16_t c);
 void drawRect(uint16_t x, uint16_t y, uint16_t x2, uint16_t y2, uint16_t color);
+void drawCircle(uint16_t x, uint16_t y, uint8_t r, uint16_t color);
 void drawLine(uint16_t x, uint16_t y, uint16_t x1, uint16_t y1, uint16_t color);
 void drawPixel(uint16_t x, uint16_t y, uint16_t color);
 
