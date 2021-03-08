@@ -86,7 +86,9 @@ uint16_t undoScale(int16_t y) {
 }
 
 void transmit_wavetable() {
-	HAL_SPI_Transmit(&m4_spi, (uint8_t *)waveform, WAVEFORM_SIZE*2, HAL_MAX_DELAY);
+	HAL_GPIO_WritePin(SPI_NSS_GPIO_Port, SPI_NSS_Pin, RESET);
+	HAL_SPI_Transmit(&m4_spi, (uint8_t *)waveform, WAVEFORM_SIZE, HAL_MAX_DELAY);
+	HAL_GPIO_WritePin(SPI_NSS_GPIO_Port, SPI_NSS_Pin, SET);
 }
 
 void reset_waveform() {
@@ -281,6 +283,12 @@ uint16_t byte_flip(uint16_t address) {
 	return tmp;
 }
 
+void set_send_wavetable_prorgess(uint16_t num) {
+
+	uint16_t px_to_draw = num *800 / WAVEFORM_SIZE;
+	drawRect(0,121, px_to_draw, 179, 0x001f);
+}
+
 uint8_t sendWavetableI2C() {
 	// eeprom supports 32 bit writes
 	// need 16 bits for the 12 address bits
@@ -299,7 +307,8 @@ uint8_t sendWavetableI2C() {
 		if(x == HAL_ERROR) {
 			return 0;
 		}
-		HAL_Delay(10);
+		set_send_wavetable_prorgess(i);
+		HAL_Delay(3);
 	}
 	// set confirmation of wavetable
 	send_buffer[0] = byte_flip(WAVEFORM_ID_ADDR);
@@ -375,7 +384,7 @@ uint8_t sendCalibration() {
 	if(res == HAL_ERROR) {
 		return 0;
 	}
-	HAL_Delay(5);
+	HAL_Delay(10);
 
 	send_buffer[0] = CALIBRATION_DATA_SECOND;
 	send_buffer[1] = divx;
@@ -384,7 +393,7 @@ uint8_t sendCalibration() {
 	if(res == HAL_ERROR) {
 		return 0;
 	}
-	HAL_Delay(5);
+	HAL_Delay(10);
 
 	send_buffer[0] = CALIBRATION_DATA_ID;
 	send_buffer[1] = 0xaaaa;
@@ -392,7 +401,7 @@ uint8_t sendCalibration() {
 	if(res == HAL_ERROR) {
 		return 0;
 	}
-	HAL_Delay(5);
+	HAL_Delay(10);
 	return 1;
 }
 
@@ -508,10 +517,10 @@ void usr_draw_waveform_loop() {
 	unsaved_changes = 1;
 }
 
-enum menu_options main_menu_start() {
+enum menu_options main_menu_start(uint8_t start) {
 	// options:
 	// save, load, calibrate, clear, send
-	const enum menu_options menu_items[] = {SAVE, LOAD, CALIBRATE, CLEAR, SEND};
+	const enum menu_options menu_items[] = {SAVE, LOAD, CLEAR, CALIBRATE, SEND};
 	const uint16_t color_options[] = {
 			(17 << 11) | (31 << 5) | (0),
 			(27 << 11) | (0 << 5) | (14),
@@ -525,7 +534,7 @@ enum menu_options main_menu_start() {
 	const uint16_t rs[] = {
 			90, 34, 30, 30, 34
 	};
-	uint8_t offset = 1;
+	uint8_t offset = start;
 
 	fillScreen(0xffff);
 	uint16_t tmp;
@@ -557,7 +566,7 @@ enum menu_options main_menu_start() {
 				screenWrite("New");
 				break;
 			case SEND:
-				screenWrite("Send");
+				screenWrite("Play");
 				break;
 			case BACK:
 				break;
@@ -600,18 +609,21 @@ void consumeTouch() {
 void loading_screen_transmit() {
 	textMode();
 	setTextColor(0x0000);
-	setTextPosition(330, 225);
-	screenWrite("Sending, this may take a moment.");
+	setTextPosition(300, 225);
+	screenWrite("Saving, this may take a moment.");
 	graphicsMode();
+	drawRect(0,115,799,120, 0x0000);
+	drawRect(0,180,799,185, 0x0000);
 }
 
 void ui_loop() {
 	//transmit_wavetable();
 	//usr_draw_waveform_loop();
+	uint8_t start_option = 1;
 	while(1) {
-		enum menu_options chosen = main_menu_start();
+		enum menu_options chosen = main_menu_start(start_option);
 		fillScreen(0xffff);
-
+		start_option = 1;
 		switch(chosen) {
 			case SAVE:
 				loading_screen_transmit();
@@ -619,6 +631,7 @@ void ui_loop() {
 					fillScreen(0xf800);
 					freeze();
 				}
+				start_option = 4; // send
 				break;
 			case LOAD:
 				if(!restoreWaveTableI2C()) {
@@ -627,10 +640,13 @@ void ui_loop() {
 				}
 				draw_waveform_screen();
 				wait_user_touch();
+				start_option = 4; // send
 				break;
 			case SEND:
 				transmit_wavetable();
 				draw_waveform_screen();
+				wait_user_back_button();
+				start_option = 0; //save
 				break;
 			case CALIBRATE:
 				calibrate();
@@ -638,10 +654,12 @@ void ui_loop() {
 					fillScreen(0xf800);
 					freeze();
 				}
+				start_option = 2; // new
 				break;
 			case CLEAR:
 				reset_waveform();
 				usr_draw_waveform_loop();
+				start_option = 4; // send
 				break;
 			case BACK:
 				break;

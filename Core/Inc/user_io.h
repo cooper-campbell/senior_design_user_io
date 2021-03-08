@@ -20,6 +20,8 @@
 #define LcdSyncReset_GPIO_Port GPIOC
 #define ScreenSelect_Pin GPIO_PIN_12
 #define ScreenSelect_GPIO_Port GPIOB
+#define SPI_NSS_Pin GPIO_PIN_4
+#define SPI_NSS_GPIO_Port GPIOA
 
 #define EEPROM_ADDRESS_WRITE 0xa0
 #define EEPROM_ADDRESS_READ 0xa1
