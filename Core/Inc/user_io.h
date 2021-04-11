@@ -17,7 +17,7 @@
 #define WAVEFORM_SIZE 1746
 
 #define LcdSyncReset_Pin GPIO_PIN_8
-#define LcdSyncReset_GPIO_Port GPIOC
+#define LcdSyncReset_GPIO_Port GPIOA
 #define ScreenSelect_Pin GPIO_PIN_12
 #define ScreenSelect_GPIO_Port GPIOB
 #define SPI_NSS_Pin GPIO_PIN_4

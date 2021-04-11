@@ -63,10 +63,16 @@ void Error_Handler(void);
 #define Button_EXTI_IRQn EXTI0_1_IRQn
 #define SPI_NSS_Pin GPIO_PIN_4
 #define SPI_NSS_GPIO_Port GPIOA
+#define SUBS_INT_Pin GPIO_PIN_2
+#define SUBS_INT_GPIO_Port GPIOB
 #define ScreenSelect_Pin GPIO_PIN_12
 #define ScreenSelect_GPIO_Port GPIOB
+#define RA8875_WAIT_Pin GPIO_PIN_6
+#define RA8875_WAIT_GPIO_Port GPIOC
+#define RA8875_INT_Pin GPIO_PIN_7
+#define RA8875_INT_GPIO_Port GPIOC
 #define LcdSyncReset_Pin GPIO_PIN_8
-#define LcdSyncReset_GPIO_Port GPIOC
+#define LcdSyncReset_GPIO_Port GPIOA
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
