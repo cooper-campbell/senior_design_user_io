@@ -11,9 +11,27 @@
 #include <stdint.h>
 
 #define USR_WRTN_TAG 0x4000
-
+#define STARTY 100
 // Private vars
-int16_t waveform[WAVEFORM_SIZE] = {0};
+struct {
+	int16_t waveform_s_t[WAVEFORM_SIZE];
+	union {
+		struct {
+			uint8_t attack;
+			uint8_t decay;
+		};
+		uint16_t word_1;
+	};
+	union {
+		struct {
+			uint8_t sustain;
+			uint8_t release;
+		};
+		uint16_t word_2;
+	};
+} data_send_struct;
+
+int16_t *waveform = (data_send_struct.waveform_s_t);
 // anonymous structure to count waveform properly
 // almost out of ram already so time for bitfields
 I2C_HandleTypeDef storage_i2c;
@@ -34,10 +52,15 @@ int most_written = -1;
 
 uint8_t unsaved_changes = 0;
 
+static const uint16_t width = 50;
+static const uint16_t margin = 100;
+static const uint8_t border = 2;
+
 enum menu_options {
 	SAVE,
 	LOAD,
 	SEND,
+	ASDR,
 	CALIBRATE,
 	CLEAR,
 	BACK
@@ -88,6 +111,8 @@ uint16_t undoScale(int16_t y) {
 void transmit_wavetable() {
 	HAL_GPIO_WritePin(SPI_NSS_GPIO_Port, SPI_NSS_Pin, RESET);
 	HAL_SPI_Transmit(&m4_spi, (uint8_t *)waveform, WAVEFORM_SIZE, HAL_MAX_DELAY);
+	HAL_SPI_Transmit(&m4_spi, (uint8_t *)&data_send_struct.word_1, 1, HAL_MAX_DELAY);
+	HAL_SPI_Transmit(&m4_spi, (uint8_t *)&data_send_struct.word_2, 1, HAL_MAX_DELAY);
 	HAL_GPIO_WritePin(SPI_NSS_GPIO_Port, SPI_NSS_Pin, SET);
 }
 
@@ -520,13 +545,14 @@ void usr_draw_waveform_loop() {
 enum menu_options main_menu_start(uint8_t start) {
 	// options:
 	// save, load, calibrate, clear, send
-	const enum menu_options menu_items[] = {SAVE, LOAD, CLEAR, CALIBRATE, SEND};
+	const enum menu_options menu_items[] = {SAVE, LOAD, ASDR, CLEAR, CALIBRATE, SEND};
 	const uint16_t color_options[] = {
 			(17 << 11) | (31 << 5) | (0),
 			(27 << 11) | (0 << 5) | (14),
 			(0 << 11) | (20 << 5) | (28),
 			(30 << 11) | (22 << 5) | (0),
-			(0 << 11) | (28 << 5) | (12)
+			(0 << 11) | (28 << 5) | (12),
+			(30 << 11) | (21 << 5) | (20)
 	};
 	const uint16_t x_locs[] = {
 			380, 540, 700, 60, 220
@@ -567,6 +593,9 @@ enum menu_options main_menu_start(uint8_t start) {
 				break;
 			case SEND:
 				screenWrite("Play");
+				break;
+			case ASDR:
+				screenWrite("ASDR");
 				break;
 			case BACK:
 				break;
@@ -615,8 +644,125 @@ void loading_screen_transmit() {
 	drawRect(0,115,799,120, 0x0000);
 	drawRect(0,180,799,185, 0x0000);
 }
+void drawStartRects() {
+
+	drawRect(margin, STARTY, margin+width, STARTY+2+0xff, 0x0000);
+	drawRect(margin + border, STARTY+border, margin+width-border, STARTY+0xff, 0xffff);
+
+	drawRect(2*margin + width, STARTY, 2*(margin+width), STARTY+2+0xff, 0x0000);
+	drawRect(2*margin + width+border, STARTY+border, 2*(margin+width)-border, STARTY+0xff, 0xffff);
+
+	drawRect(3*margin + 2*width, STARTY, 3*(margin+width), STARTY+2+0xff, 0x0000);
+	drawRect(3*margin + 2*width+border, STARTY+border, 3*(margin+width)-border, STARTY+0xff, 0xffff);
+
+	drawRect(4*margin + 3*width, STARTY, 4*(margin+width), STARTY+2+0xff, 0x0000);
+	drawRect(4*margin + 3*width+border, STARTY+border, 4*(margin+width)-border, STARTY+0xff, 0xffff);
+}
+
+void clearAsdrRects(uint8_t f) {
+	if(f == 1) {
+		drawRect(52, STARTY+2, 98, STARTY+0xff, 0xffff);
+	} else if(f == 2) {
+
+	} else if(f == 3) {
+
+	} else {
+
+	}
+}
+
+void asdr_screen() {
+	fillScreen(0xffff);
+
+	uint16_t tmpx, tmpy;
+
+	uint16_t attack = STARTY + 0xff;
+	uint16_t decay = STARTY + 0xff;
+	uint16_t sustain = STARTY + 0xff;
+	uint16_t release = STARTY + 0xff;
+	drawStartRects();
+
+	drawRect(0, 0, 60, 40, 0x618c);
+
+	textMode();
+	setTextColor(0x0000);
+	setTextPosition(20, 20);
+	screenWrite("Done");
+
+	setTextPosition(120, 80);
+	screenWrite("A");
+
+	setTextPosition(270, 80);
+	screenWrite("S");
+
+	setTextPosition(420, 80);
+	screenWrite("D");
+
+	setTextPosition(570, 80);
+	screenWrite("R");
+	graphicsMode();
+
+	while(1) {
+		if(!isTouchEvent()) continue;
+		readTouch(&tmpx, &tmpy);
+
+		tmpx = (tmpx-scalex) * 800 / divx;
+		tmpy = (tmpy-scaley) * 480 / divy;
+		if(tmpx > 800) tmpx = 800;
+		if(tmpy > 480) tmpy = 480;
+
+		if(tmpy < STARTY) tmpy = STARTY;
+		if(tmpy > (STARTY + 0xff)) tmpy = STARTY + 0xff;
+
+		if(tmpx > margin && tmpx < margin+width) {
+			if(attack > tmpy) {
+				drawRect(margin+border, tmpy, margin+width-border, attack, 0xf800);
+			} else {
+				drawRect(margin+border, attack, margin+width-border, tmpy, 0xffff);
+			}
+
+			attack = tmpy;
+		} else if(tmpx > (2*margin + width) && tmpx < 2*(margin+width)) {
+			if(decay > tmpy) {
+				drawRect(2*margin + 1*width+border, tmpy, 2*(margin+width)-border, decay, 0x07e0);
+			} else {
+				drawRect(2*margin + 1*width+border, decay, 2*(margin+width)-border, tmpy, 0xffff);
+			}
+
+			decay = tmpy;
+		} else if(tmpx > (3*margin + 2*width) && tmpx < 3*(margin+width)) {
+			if(sustain > tmpy) {
+				drawRect(3*margin + 2*width+border, tmpy, 3*(margin+width)-border, sustain, 0x001f);
+			} else {
+				drawRect(3*margin + 2*width+border, sustain, 3*(margin+width)-border, tmpy, 0xffff);
+			}
+
+			sustain = tmpy;
+		} else if(tmpx > (4*margin + 3*width) && tmpx < 4*(margin+width)) {
+			if(release > tmpy) {
+				drawRect(4*margin + 3*width+border, tmpy, 4*(margin+width)-border, release, 0xe6ab);
+			} else {
+				drawRect(4*margin + 3*width+border, release, 4*(margin+width)-border, tmpy, 0xffff);
+			}
+
+			release = tmpy;
+		} else if(tmpx < 60 && tmpy < 110) {
+			data_send_struct.attack = 0xff + STARTY - attack;
+			data_send_struct.decay = 0xff + STARTY - decay;
+			data_send_struct.sustain = 0xff + STARTY - sustain;
+			data_send_struct.release = 0xff + STARTY - release;
+			return;
+		}
+	}
+}
 
 void ui_loop() {
+	const uint8_t save = 0;
+	const uint8_t load = 1;
+	const uint8_t asdr = 2;
+	const uint8_t clear = 3;
+	const uint8_t calilbrate = 4;
+	const uint8_t send = 5;
 	//transmit_wavetable();
 	//usr_draw_waveform_loop();
 	uint8_t start_option = 1;
@@ -631,7 +777,7 @@ void ui_loop() {
 					fillScreen(0xf800);
 					freeze();
 				}
-				start_option = 4; // send
+				start_option = send; // send
 				break;
 			case LOAD:
 				if(!restoreWaveTableI2C()) {
@@ -640,13 +786,13 @@ void ui_loop() {
 				}
 				draw_waveform_screen();
 				wait_user_touch();
-				start_option = 4; // send
+				start_option = send; // send
 				break;
 			case SEND:
 				transmit_wavetable();
 				draw_waveform_screen();
 				wait_user_back_button();
-				start_option = 0; //save
+				start_option = save; //save
 				break;
 			case CALIBRATE:
 				calibrate();
@@ -654,12 +800,16 @@ void ui_loop() {
 					fillScreen(0xf800);
 					freeze();
 				}
-				start_option = 2; // new
+				start_option = clear; // new
 				break;
 			case CLEAR:
 				reset_waveform();
 				usr_draw_waveform_loop();
-				start_option = 4; // send
+				start_option = send; // send
+				break;
+			case ASDR:
+				asdr_screen();
+				start_option = send;
 				break;
 			case BACK:
 				break;
