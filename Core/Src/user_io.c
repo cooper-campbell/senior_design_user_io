@@ -468,6 +468,11 @@ void draw_waveform_screen() {
 		drawRect(i,y,i+2, y+2,0x0000);
 		//drawPixel(i,y,0x0000);
 	}
+	textMode();
+	setTextColor(0x0000);
+	setTextPosition(20, 20);
+	screenWrite("Back");
+	graphicsMode();
 }
 void wait_user_back_button() {
 	drawRect(0,0,60, 40, 0x618c);
@@ -512,6 +517,7 @@ void usr_draw_waveform_loop() {
 			tmpy = (tmpy-scaley) * 480 / divy;
 			if(tmpx > 800) tmpx = 800;
 			if(tmpy > 480) tmpy = 480;
+			if((tmpx < 60) && (tmpy < 40)) break;
 			drawRect(tmpx, 0, tmpx+2, 479, 0xffff);
 			drawRect(tmpx, tmpy, tmpx+2, tmpy+2, 0x0000);
 			stream_touch_sample(tmpx, tmpy);
@@ -524,14 +530,6 @@ void usr_draw_waveform_loop() {
 	normalize_waveform();
 	button_press = 0;
 
-	/*if(!sendWavetableI2C()) {
-		textMode();
-		setTextColor(0x0000);
-		setTextPosition(1024/2, 512/2);
-		screenWrite(msg_fail_save);
-		graphicsMode();
-		return;
-	}*/
 	draw_waveform_screen();
 
 	wait_user_back_button();
@@ -758,10 +756,7 @@ void asdr_screen() {
 
 void ui_loop() {
 	const uint8_t save = 0;
-	const uint8_t load = 1;
-	const uint8_t asdr = 2;
 	const uint8_t clear = 3;
-	const uint8_t calilbrate = 4;
 	const uint8_t send = 5;
 	//transmit_wavetable();
 	//usr_draw_waveform_loop();
